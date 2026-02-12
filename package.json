@@ -17,6 +17,7 @@
 		"wrangler": "^4.64.0"
 	},
 	"dependencies": {
+		"cheerio": "^1.2.0",
 		"grammy": "^1.40.0",
 		"hono": "^4.11.9"
 	}

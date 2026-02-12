@@ -1,10 +1,10 @@
 import type { Context } from 'hono';
 import type { FeedContext, MediaTypeFilter, MediaNode } from '../types/instagram';
-import { fetchInstagramData } from '../services/instagram-client';
+import { fetchFromRSSHub, fetchInstagramData } from '../services/instagram-client';
 import { buildRSSFeed } from '../services/rss-builder';
 import { mediaNodeToRSSItem } from '../utils/media';
 import { getCached, setCached } from '../utils/cache';
-import { IG_BASE_URL, CACHE_PREFIX_FEED } from '../constants';
+import { IG_BASE_URL, CACHE_PREFIX_FEED, RSS_ITEMS_LIMIT } from '../constants';
 
 type HonoEnv = { Bindings: Env };
 
@@ -37,7 +37,23 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 		});
 	}
 
-	// Fetch from Instagram
+	const ttl = parseInt(c.env.FEED_CACHE_TTL || '900', 10);
+
+	// Primary: Try RSSHub for username feeds
+	if (context.type === 'username') {
+		const rsshubXml = await fetchFromRSSHub(context.value);
+		if (rsshubXml) {
+			await setCached(c.env.CACHE, cacheKey, rsshubXml, ttl);
+			return c.body(rsshubXml, 200, {
+				'Content-Type': 'application/rss+xml; charset=utf-8',
+				'Cache-Control': `public, max-age=${ttl}`,
+				'X-Cache': 'MISS',
+				'X-Source': 'rsshub',
+			});
+		}
+	}
+
+	// Fallback: Mirror scraping → MediaNode conversion → RSS build
 	const result = await fetchInstagramData(context, c.env);
 	if (result.nodes.length === 0) {
 		return c.json(
@@ -50,8 +66,8 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 		);
 	}
 
-	// Filter by media type
-	let nodes = filterByMediaType(result.nodes, mediaType);
+	// Filter by media type and cap to limit
+	let nodes = filterByMediaType(result.nodes, mediaType).slice(0, RSS_ITEMS_LIMIT);
 
 	// Build RSS
 	const items = nodes.map((node) => mediaNodeToRSSItem(node, directLinks));
@@ -64,13 +80,13 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 	const xml = buildRSSFeed(feed);
 
 	// Cache
-	const ttl = parseInt(c.env.FEED_CACHE_TTL || '900', 10);
 	await setCached(c.env.CACHE, cacheKey, xml, ttl);
 
 	return c.body(xml, 200, {
 		'Content-Type': 'application/rss+xml; charset=utf-8',
 		'Cache-Control': `public, max-age=${ttl}`,
 		'X-Cache': 'MISS',
+		'X-Source': 'mirror',
 	});
 }
 

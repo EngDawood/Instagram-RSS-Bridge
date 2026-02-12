@@ -1,274 +1,283 @@
-import type { FeedContext, MediaNode, MediaConnection, WebProfileInfoResponse, GraphQLResponse, TierError, FetchResult } from '../types/instagram';
-import {
-	IG_WEB_PROFILE,
-	IG_GRAPHQL_QUERY,
-	IG_BASE_URL,
-	USER_QUERY_HASH,
-	TAG_QUERY_HASH,
-	USER_POSTS_DOC_ID,
-	RSS_ITEMS_LIMIT,
-} from '../constants';
-import { buildHeaders } from '../utils/headers';
-import { resolveUserId } from './user-resolver';
+import * as cheerio from 'cheerio';
+import type { MediaNode, InstagramPost, InstagramUser, FetchResult } from '../types/instagram';
+import { RSS_ITEMS_LIMIT } from '../constants';
 
-type TierResult = { nodes: MediaNode[] | null; error?: TierError };
+// --- RSSHub Public Instances (failover list) ---
+const RSSHUB_INSTANCES = [
+	'https://rsshub.rssforever.com',
+	'https://hub.slarker.me',
+	'https://rsshub.pseudoyu.com',
+	'https://rsshub.ktachibana.party',
+	'https://rss.owo.nz',
+	'https://rsshub.isrss.com',
+];
 
-const FETCH_TIMEOUT = 8000; // 8 seconds per tier
-
-/** Check if response is HTML (login redirect) instead of expected JSON */
-function isHtmlResponse(res: Response): boolean {
-	const ct = res.headers.get('content-type') || '';
-	return ct.includes('text/html');
-}
+const RSSHUB_TIMEOUT_MS = 8000;
 
 /**
- * Fetches Instagram media data using a multi-tier fallback strategy:
- * 1. REST API (web_profile_info) — username only
- * 2. GraphQL GET (query_hash) — username/hashtag/location
- * 3. GraphQL POST (doc_id) — username only
- * 4. Embed page scraping — username only
+ * Try fetching RSS XML from public RSSHub instances.
+ * Returns the raw RSS XML string on success, null if all instances fail.
  */
-export async function fetchInstagramData(context: FeedContext, env: Env): Promise<FetchResult> {
-	const headers = buildHeaders(env);
-	const errors: TierError[] = [];
-	const envRecord = env as unknown as Record<string, string | undefined>;
-
-	// Tier 1: REST API (username only)
-	if (context.type === 'username') {
+export async function fetchFromRSSHub(username: string): Promise<string | null> {
+	for (const instance of RSSHUB_INSTANCES) {
+		const url = `${instance}/picnob/profile/${username}`;
 		try {
-			const result = await fetchViaRestApi(context.value, headers);
-			if (result.nodes && result.nodes.length > 0) return { nodes: result.nodes, errors };
-			if (result.error) errors.push(result.error);
-		} catch (err) {
-			errors.push({ tier: 'REST API', message: String(err) });
-		}
-	}
+			console.log(`[RSSHub] Trying ${instance} for user: ${username}...`);
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), RSSHUB_TIMEOUT_MS);
 
-	// Tier 2: GraphQL GET (query_hash approach)
-	try {
-		const result = await fetchViaGraphQLGet(context, headers, env, envRecord);
-		if (result.nodes && result.nodes.length > 0) return { nodes: result.nodes, errors };
-		if (result.error) errors.push(result.error);
-	} catch (err) {
-		errors.push({ tier: 'GraphQL GET', message: String(err) });
-	}
+			const response = await fetch(url, {
+				signal: controller.signal,
+				headers: {
+					'User-Agent': 'Mozilla/5.0 (compatible; RSSBridge/1.0)',
+					Accept: 'application/rss+xml, application/xml, text/xml, */*',
+				},
+			});
 
-	// Tier 3: GraphQL POST (doc_id approach, username only)
-	if (context.type === 'username') {
-		try {
-			const result = await fetchViaGraphQLPost(context.value, headers, env, envRecord);
-			if (result.nodes && result.nodes.length > 0) return { nodes: result.nodes, errors };
-			if (result.error) errors.push(result.error);
-		} catch (err) {
-			errors.push({ tier: 'GraphQL POST', message: String(err) });
-		}
-	}
+			clearTimeout(timeout);
 
-	// Tier 4: Embed fallback (username only — scrape recent posts page)
-	if (context.type === 'username') {
-		try {
-			const result = await fetchViaEmbed(context.value, headers);
-			if (result.nodes && result.nodes.length > 0) return { nodes: result.nodes, errors };
-			if (result.error) errors.push(result.error);
-		} catch (err) {
-			errors.push({ tier: 'Embed', message: String(err) });
-		}
-	}
-
-	if (errors.length > 0) {
-		console.error(`All fetch tiers failed for ${context.type}:${context.value}:`, JSON.stringify(errors));
-	}
-
-	return { nodes: [], errors };
-}
-
-// Tier 1: REST API
-async function fetchViaRestApi(username: string, headers: Record<string, string>): Promise<TierResult> {
-	const url = `${IG_WEB_PROFILE}?username=${encodeURIComponent(username)}`;
-	const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
-
-	if (!res.ok) {
-		console.error(`[Tier 1 REST] HTTP ${res.status} for ${username}`);
-		return { nodes: null, error: { tier: 'REST API', status: res.status, message: `HTTP ${res.status}` } };
-	}
-
-	if (isHtmlResponse(res)) {
-		console.error(`[Tier 1 REST] Got HTML instead of JSON for ${username} (login redirect)`);
-		return { nodes: null, error: { tier: 'REST API', status: res.status, message: 'Login redirect (cookies expired)' } };
-	}
-
-	const data: WebProfileInfoResponse = await res.json();
-	const edges = data?.data?.user?.edge_owner_to_timeline_media?.edges;
-	if (!edges) {
-		console.error(`[Tier 1 REST] No media edges for ${username}`);
-		return { nodes: null, error: { tier: 'REST API', message: 'No media edges in response' } };
-	}
-
-	return { nodes: edges.map((e) => e.node) };
-}
-
-// Tier 2: GraphQL GET (query_hash)
-async function fetchViaGraphQLGet(
-	context: FeedContext,
-	headers: Record<string, string>,
-	env: Env,
-	envRecord: Record<string, string | undefined>
-): Promise<TierResult> {
-	let queryHash: string;
-	let variables: Record<string, unknown>;
-
-	switch (context.type) {
-		case 'username': {
-			const userId = await resolveUserId(context.value, env);
-			if (!userId) {
-				return { nodes: null, error: { tier: 'GraphQL GET', message: 'Could not resolve user ID' } };
+			if (!response.ok) {
+				console.warn(`[RSSHub] ${instance} returned HTTP ${response.status}`);
+				continue;
 			}
-			queryHash = envRecord['USER_QUERY_HASH'] || USER_QUERY_HASH;
-			variables = { id: userId, first: RSS_ITEMS_LIMIT };
-			break;
+
+			const xml = await response.text();
+
+			// Basic validation: must look like RSS XML
+			if (!xml.includes('<rss') && !xml.includes('<feed')) {
+				console.warn(`[RSSHub] ${instance} returned non-RSS content`);
+				continue;
+			}
+
+			console.log(`[RSSHub] Success with ${instance}`);
+			return xml;
+		} catch (err: any) {
+			const msg = err.name === 'AbortError' ? 'Timeout' : err.message || 'Unknown error';
+			console.warn(`[RSSHub] ${instance} failed: ${msg}`);
 		}
-		case 'hashtag': {
-			queryHash = envRecord['TAG_QUERY_HASH'] || TAG_QUERY_HASH;
-			variables = { tag_name: context.value, first: RSS_ITEMS_LIMIT };
-			break;
-		}
-		case 'location': {
-			queryHash = envRecord['TAG_QUERY_HASH'] || TAG_QUERY_HASH;
-			variables = { id: context.value, first: RSS_ITEMS_LIMIT };
-			break;
-		}
 	}
 
-	const url = `${IG_GRAPHQL_QUERY}?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
-	const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
-
-	if (!res.ok) {
-		console.error(`[Tier 2 GraphQL GET] HTTP ${res.status} for ${context.type}:${context.value}`);
-		return { nodes: null, error: { tier: 'GraphQL GET', status: res.status, message: `HTTP ${res.status}` } };
-	}
-
-	if (isHtmlResponse(res)) {
-		console.error(`[Tier 2 GraphQL GET] Got HTML for ${context.type}:${context.value} (login redirect)`);
-		return { nodes: null, error: { tier: 'GraphQL GET', status: res.status, message: 'Login redirect (cookies expired)' } };
-	}
-
-	const data: GraphQLResponse = await res.json();
-
-	let connection: MediaConnection | undefined;
-	if (context.type === 'username') {
-		connection = data?.data?.user?.edge_owner_to_timeline_media;
-	} else if (context.type === 'hashtag') {
-		connection = data?.data?.hashtag?.edge_hashtag_to_media;
-	}
-
-	if (!connection?.edges) {
-		console.error(`[Tier 2 GraphQL GET] No edges for ${context.type}:${context.value}`);
-		return { nodes: null, error: { tier: 'GraphQL GET', message: 'No edges in response' } };
-	}
-	return { nodes: connection.edges.map((e) => e.node) };
+	console.warn('[RSSHub] All instances failed, falling back to mirror scraping');
+	return null;
 }
 
-// Tier 3: GraphQL POST (doc_id)
-async function fetchViaGraphQLPost(
-	username: string,
-	headers: Record<string, string>,
-	env: Env,
-	envRecord: Record<string, string | undefined>
-): Promise<TierResult> {
-	const userId = await resolveUserId(username, env);
-	if (!userId) {
-		return { nodes: null, error: { tier: 'GraphQL POST', message: 'Could not resolve user ID' } };
+// --- Mirror Scraping Fallback ---
+
+class InstagramClient {
+	private mirrors = [
+		{ name: 'Pixnoy', handler: this.fetchFromPixnoy.bind(this) },
+		{ name: 'Imginn', handler: this.fetchFromImginn.bind(this) },
+	];
+
+	async getProfile(username: string): Promise<{ user: InstagramUser; posts: InstagramPost[] }> {
+		const errors: string[] = [];
+
+		for (const mirror of this.mirrors) {
+			try {
+				console.log(`[InstagramClient] Trying ${mirror.name} for user: ${username}...`);
+				const result = await mirror.handler(username);
+				console.log(`[InstagramClient] Success with ${mirror.name}! Found ${result.posts.length} posts.`);
+				return result;
+			} catch (err: any) {
+				const msg = err.message || 'Unknown Error';
+				console.warn(`[InstagramClient] ${mirror.name} failed: ${msg}`);
+				errors.push(`${mirror.name}: ${msg}`);
+			}
+		}
+
+		const errorString = errors.join(' | ');
+		if (errorString.includes('404')) {
+			throw new Error('User not found or Private Account (404). Mirrors cannot view private profiles.');
+		}
+		throw new Error(`All mirrors failed. Details: ${errorString}`);
 	}
 
-	const docId = envRecord['USER_POSTS_DOC_ID'] || USER_POSTS_DOC_ID;
-	const url = `${IG_BASE_URL}/api/graphql`;
-	const body = new URLSearchParams({
-		doc_id: docId,
-		variables: JSON.stringify({
-			id: userId,
-			first: RSS_ITEMS_LIMIT,
-		}),
-	});
+	// --- Pixnoy (formerly Pixwox) ---
+	private async fetchFromPixnoy(username: string): Promise<{ user: InstagramUser; posts: InstagramPost[] }> {
+		const url = `https://www.pixnoy.com/profile/${username}/`;
+		const html = await this.fetchHtml(url);
+		const $ = cheerio.load(html);
 
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: {
-			...headers,
-			'Content-Type': 'application/x-www-form-urlencoded',
-		},
-		body: body.toString(),
-		signal: AbortSignal.timeout(FETCH_TIMEOUT),
-	});
+		if ($('.profile_title').length === 0) {
+			if (html.includes('404')) throw new Error('404 Not Found (User might be private)');
+			throw new Error('Invalid HTML structure');
+		}
 
-	if (!res.ok) {
-		console.error(`[Tier 3 GraphQL POST] HTTP ${res.status} for ${username}`);
-		return { nodes: null, error: { tier: 'GraphQL POST', status: res.status, message: `HTTP ${res.status}` } };
-	}
-
-	if (isHtmlResponse(res)) {
-		console.error(`[Tier 3 GraphQL POST] Got HTML for ${username} (login redirect)`);
-		return { nodes: null, error: { tier: 'GraphQL POST', status: res.status, message: 'Login redirect (cookies expired)' } };
-	}
-
-	const data = (await res.json()) as {
-		data?: {
-			xdt_api__v1__feed__user_timeline_graphql_connection?: MediaConnection;
+		const fullName = $('.profile_title').text().trim();
+		const user: InstagramUser = {
+			id: username,
+			username: username,
+			fullName: fullName,
+			biography: $('.profile_desc').text().trim(),
+			profilePicUrl: $('.profile_img img').attr('src') || '',
+			isPrivate: false,
+			externalUrl: '',
+			followerCount: 0,
+			followingCount: 0,
 		};
+
+		const posts: InstagramPost[] = [];
+		$('.item').each((_, el) => {
+			const $el = $(el);
+			const link = $el.find('a').attr('href');
+			const img = $el.find('img');
+			const imageUrl = img.attr('src');
+
+			if (imageUrl && link) {
+				const fullLink = link.startsWith('http') ? link : `https://www.pixnoy.com${link}`;
+				const id = link.split('/').filter(Boolean).pop() || crypto.randomUUID();
+
+				posts.push({
+					id,
+					shortcode: id,
+					type: 'image',
+					displayUrl: imageUrl,
+					caption: img.attr('alt') || 'No Caption',
+					timestamp: new Date().toISOString(),
+					dimensions: { height: 600, width: 600 },
+					url: fullLink,
+					ownerUsername: username,
+				});
+			}
+		});
+
+		return { user, posts: posts.slice(0, RSS_ITEMS_LIMIT) };
+	}
+
+	// --- Imginn ---
+	private async fetchFromImginn(username: string): Promise<{ user: InstagramUser; posts: InstagramPost[] }> {
+		const url = `https://imginn.com/${username}/`;
+		const html = await this.fetchHtml(url);
+		const $ = cheerio.load(html);
+
+		if ($('.user-info').length === 0) {
+			if (html.includes('Page Not Found')) throw new Error('404 Not Found');
+			throw new Error('Invalid structure');
+		}
+
+		const user: InstagramUser = {
+			id: username,
+			username: $('.user-info h1').text().trim(),
+			fullName: $('.user-info .name').text().trim(),
+			biography: $('.user-info .desc').text().trim(),
+			profilePicUrl: $('.user-info .img img').attr('src') || '',
+			isPrivate: false,
+			externalUrl: '',
+			followerCount: 0,
+			followingCount: 0,
+		};
+
+		const posts: InstagramPost[] = [];
+		$('.items .item').each((_, el) => {
+			const $el = $(el);
+			const linkPath = $el.find('a').attr('href');
+			if (!linkPath) return;
+
+			const link = `https://imginn.com${linkPath}`;
+			const img = $el.find('img');
+			const imageUrl = img.attr('src') || img.attr('data-src');
+			const caption = $el.find('.alt').text().trim();
+			const id = linkPath
+				.split('/')
+				.filter((p) => p && p !== 'p')
+				.pop() || crypto.randomUUID();
+
+			if (imageUrl) {
+				posts.push({
+					id,
+					shortcode: id,
+					type: 'image',
+					displayUrl: imageUrl,
+					caption: caption,
+					timestamp: new Date().toISOString(),
+					dimensions: { height: 600, width: 600 },
+					url: link,
+					ownerUsername: username,
+				});
+			}
+		});
+
+		return { user, posts: posts.slice(0, RSS_ITEMS_LIMIT) };
+	}
+
+	private async fetchHtml(url: string): Promise<string> {
+		const response = await fetch(url, {
+			method: 'GET',
+			headers: {
+				'User-Agent':
+					'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+				Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+				'Accept-Language': 'en-US,en;q=0.5',
+				'Cache-Control': 'no-cache',
+				Pragma: 'no-cache',
+				'Sec-Fetch-Dest': 'document',
+				'Sec-Fetch-Mode': 'navigate',
+				'Sec-Fetch-Site': 'none',
+				'Sec-Fetch-User': '?1',
+				'Upgrade-Insecure-Requests': '1',
+			},
+		});
+
+		if (response.status === 404) {
+			throw new Error('404 Not Found');
+		}
+
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status} ${response.statusText}`);
+		}
+
+		return await response.text();
+	}
+}
+
+// --- Type Adapter: InstagramPost → MediaNode ---
+
+function toMediaNode(post: InstagramPost): MediaNode {
+	const typenameMap: Record<InstagramPost['type'], MediaNode['__typename']> = {
+		image: 'GraphImage',
+		video: 'GraphVideo',
+		sidecar: 'GraphSidecar',
 	};
 
-	const connection = data?.data?.xdt_api__v1__feed__user_timeline_graphql_connection;
-	if (!connection?.edges) {
-		console.error(`[Tier 3 GraphQL POST] No edges for ${username}`);
-		return { nodes: null, error: { tier: 'GraphQL POST', message: 'No edges in response' } };
-	}
-
-	return { nodes: connection.edges.map((e) => e.node) };
-}
-
-// Tier 4: Embed fallback — parse JSON from the user's profile page
-async function fetchViaEmbed(username: string, headers: Record<string, string>): Promise<TierResult> {
-	const url = `${IG_BASE_URL}/${encodeURIComponent(username)}/`;
-	const res = await fetch(url, {
-		headers: {
-			...headers,
-			Accept: 'text/html,application/xhtml+xml',
+	return {
+		id: post.id,
+		__typename: typenameMap[post.type],
+		shortcode: post.shortcode,
+		display_url: post.displayUrl,
+		is_video: post.type === 'video',
+		taken_at_timestamp: Math.floor(new Date(post.timestamp).getTime() / 1000),
+		edge_media_to_caption: {
+			edges: post.caption ? [{ node: { text: post.caption } }] : [],
 		},
-		signal: AbortSignal.timeout(FETCH_TIMEOUT),
-	});
-
-	if (!res.ok) {
-		console.error(`[Tier 4 Embed] HTTP ${res.status} for ${username}`);
-		return { nodes: null, error: { tier: 'Embed', status: res.status, message: `HTTP ${res.status}` } };
-	}
-
-	const html = await res.text();
-
-	// Try to extract embedded JSON data from the page
-	const jsonMatch = html.match(/window\._sharedData\s*=\s*({.+?});<\/script>/);
-	if (!jsonMatch) {
-		// Try the newer format
-		const altMatch = html.match(/"xdt_api__v1__feed__user_timeline_graphql_connection":(\{.+?\})\s*[,}]/);
-		if (!altMatch) {
-			console.error(`[Tier 4 Embed] No embedded JSON found for ${username}`);
-			return { nodes: null, error: { tier: 'Embed', message: 'No embedded JSON data in page' } };
-		}
-
-		try {
-			const connection: MediaConnection = JSON.parse(altMatch[1]);
-			return { nodes: connection.edges.map((e) => e.node) };
-		} catch {
-			return { nodes: null, error: { tier: 'Embed', message: 'Failed to parse embedded JSON (alt format)' } };
-		}
-	}
-
-	try {
-		const shared = JSON.parse(jsonMatch[1]);
-		const edges = shared?.entry_data?.ProfilePage?.[0]?.graphql?.user?.edge_owner_to_timeline_media?.edges;
-		if (!edges) {
-			return { nodes: null, error: { tier: 'Embed', message: 'No edges in _sharedData' } };
-		}
-		return { nodes: edges.map((e: { node: MediaNode }) => e.node) };
-	} catch {
-		return { nodes: null, error: { tier: 'Embed', message: 'Failed to parse _sharedData JSON' } };
-	}
+		owner: {
+			id: post.ownerUsername,
+			username: post.ownerUsername,
+		},
+		dimensions: post.dimensions,
+	};
 }
+
+// --- Adapter for route compatibility ---
+
+export const fetchInstagramData = async (context: any, _env?: any): Promise<FetchResult> => {
+	const username = typeof context === 'string' ? context : context.value;
+	const client = new InstagramClient();
+	try {
+		const { posts } = await client.getProfile(username);
+		return {
+			nodes: posts.map(toMediaNode),
+			errors: [],
+		};
+	} catch (error: any) {
+		return {
+			nodes: [],
+			errors: [
+				{
+					tier: 'CRITICAL',
+					message: error.message || 'Unknown error',
+					status: 500,
+				},
+			],
+		};
+	}
+};

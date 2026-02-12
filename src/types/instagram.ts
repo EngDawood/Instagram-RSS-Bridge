@@ -92,3 +92,29 @@ export interface FetchResult {
 	nodes: MediaNode[];
 	errors: TierError[];
 }
+export interface InstagramUser {
+  id: string;
+  username: string;
+  fullName: string;
+  biography: string;
+  profilePicUrl: string;
+  externalUrl?: string;
+  followerCount: number;
+  followingCount: number;
+  isPrivate: boolean;
+}
+
+export interface InstagramPost {
+  id: string;
+  shortcode: string;
+  type: 'image' | 'video' | 'sidecar';
+  displayUrl: string;
+  caption: string;
+  timestamp: string;
+  dimensions: {
+    height: number;
+    width: number;
+  };
+  url: string;
+  ownerUsername: string;
+}

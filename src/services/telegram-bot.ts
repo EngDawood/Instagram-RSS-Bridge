@@ -1,8 +1,9 @@
+import * as cheerio from 'cheerio';
 import { Bot, InlineKeyboard, InputMediaBuilder } from 'grammy';
 import type { Context } from 'grammy';
 import type { ChannelConfig, ChannelSource, AdminState, TelegramMediaMessage } from '../types/telegram';
 import type { FeedContext, MediaTypeFilter } from '../types/instagram';
-import { fetchInstagramData } from './instagram-client';
+import { fetchInstagramData, fetchFromRSSHub } from './instagram-client';
 import { resolveUserId } from './user-resolver';
 import { formatMediaForTelegram } from '../utils/telegram-format';
 import { buildHeaders } from '../utils/headers';
@@ -149,6 +150,7 @@ export function createBot(env: Env): Bot {
 				'/status — Status overview\n' +
 				'/enable @channel — Enable channel\n' +
 				'/disable @channel — Disable channel\n' +
+				'/test @iguser — Fetch & send latest post\n' +
 				'/debug @iguser — Test Instagram connectivity\n\n' +
 				'/cancel — Cancel current action\n' +
 				'/help — Full help',
@@ -220,6 +222,64 @@ export function createBot(env: Env): Bot {
 			text += `   Last check: ${lastCheck}\n\n`;
 		}
 		await ctx.reply(text, { parse_mode: 'HTML' });
+	});
+
+	// /test [@username] — Fetch and send the latest post from an Instagram user
+	bot.command('test', async (ctx) => {
+		const arg = ctx.match?.trim().replace(/^@/, '') || '';
+		if (!arg) {
+			await ctx.reply('Usage: <code>/test username</code>', { parse_mode: 'HTML' });
+			return;
+		}
+
+		await ctx.reply(`Fetching latest post for <b>${arg}</b>...`, { parse_mode: 'HTML' });
+
+		try {
+			// Primary: try RSSHub
+			const rsshubXml = await fetchFromRSSHub(arg);
+			if (rsshubXml) {
+				const $ = cheerio.load(rsshubXml, { xmlMode: true });
+				const firstItem = $('item').first();
+				if (firstItem.length) {
+					const title = firstItem.find('title').text() || 'No title';
+					const link = firstItem.find('link').text() || '';
+					const description = firstItem.find('description').text() || '';
+
+					// Extract first image from description HTML
+					const descHtml = cheerio.load(description);
+					const imgUrl = descHtml('img').first().attr('src') || '';
+
+					if (imgUrl) {
+						const caption = `<b>${escapeHtmlBot(title)}</b>\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSSHub</i>`;
+						await bot.api.sendPhoto(ctx.chat!.id, imgUrl, { caption, parse_mode: 'HTML' });
+					} else {
+						await ctx.reply(
+							`<b>${escapeHtmlBot(title)}</b>\n\n${escapeHtmlBot(description.substring(0, 500))}\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSSHub</i>`,
+							{ parse_mode: 'HTML' }
+						);
+					}
+					return;
+				}
+			}
+
+			// Fallback: mirror scraping
+			const context: FeedContext = { type: 'username', value: arg };
+			const result = await fetchInstagramData(context, env);
+
+			if (result.nodes.length === 0) {
+				const errorInfo = result.errors.length > 0
+					? result.errors.map((e) => `- ${e.tier}: ${e.message}`).join('\n')
+					: 'No posts found';
+				await ctx.reply(`No data for <b>${arg}</b>:\n<pre>${errorInfo}</pre>`, { parse_mode: 'HTML' });
+				return;
+			}
+
+			const latest = result.nodes[0];
+			const message = formatMediaForTelegram(latest);
+			await sendMediaToChannel(bot, ctx.chat!.id, message);
+		} catch (err: any) {
+			await ctx.reply(`Error: ${err.message || String(err)}`);
+		}
 	});
 
 	// /debug [@username] — Quick connectivity test (lightweight, avoids timeout)
