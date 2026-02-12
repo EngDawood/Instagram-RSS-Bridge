@@ -127,7 +127,7 @@ dist
 .cache
 
 # Docusaurus cache and generated files
-
+.agents/*
 .docusaurus
 
 # Serverless directories
@@ -165,3 +165,7 @@ dist
 .env*
 !.env.example
 .wrangler/
+.agents/*
+.claude/*
+.gemini/*
+chat.md

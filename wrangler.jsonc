@@ -1,44 +1,31 @@
-/**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
- */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "rss-bridge",
+	"name": "instagram-rss-bridge",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-02-10",
-	"compatibility_flags": [
-		"nodejs_compat",
-		"global_fetch_strictly_public"
-	],
-	"assets": {
-		// The path to the directory containing the `index.html` file to be served at `/`
-		"directory": "./public"
-	},
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
+	},
+	// KV namespace for caching (create with: npx wrangler kv namespace create CACHE)
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "66a6f30828f94d508b4f55e93c8d1b7f"
+		}
+	],
+	"vars": {
+		"USER_ID_CACHE_TTL": "86400",
+		"FEED_CACHE_TTL": "900",
+		"ADMIN_TELEGRAM_ID": "801062947"
+	},
+	// Cron trigger: check feeds every 5 minutes
+	"triggers": {
+		"crons": ["*/5 * * * *"]
 	}
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
-	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+	// Secrets (set via wrangler secret put):
+	// - IG_SESSION_ID
+	// - IG_DS_USER_ID
+	// - TELEGRAM_BOT_TOKEN
+	// - TELEGRAM_WEBHOOK_SECRET
 }
