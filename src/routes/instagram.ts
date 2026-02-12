@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { FeedContext, MediaTypeFilter, MediaNode } from '../types/instagram';
-import { fetchFromRSSHub, fetchInstagramData } from '../services/instagram-client';
+import { fetchFromRSSBridge, fetchInstagramData } from '../services/instagram-client';
 import { buildRSSFeed } from '../services/rss-builder';
 import { mediaNodeToRSSItem } from '../utils/media';
 import { getCached, setCached } from '../utils/cache';
@@ -39,16 +39,16 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 
 	const ttl = parseInt(c.env.FEED_CACHE_TTL || '900', 10);
 
-	// Primary: Try RSSHub for username feeds
-	if (context.type === 'username') {
-		const rsshubXml = await fetchFromRSSHub(context.value);
-		if (rsshubXml) {
-			await setCached(c.env.CACHE, cacheKey, rsshubXml, ttl);
-			return c.body(rsshubXml, 200, {
+	// Primary: Try RSS-Bridge for username and hashtag feeds
+	if (context.type === 'username' || context.type === 'hashtag') {
+		const bridgeXml = await fetchFromRSSBridge(context);
+		if (bridgeXml) {
+			await setCached(c.env.CACHE, cacheKey, bridgeXml, ttl);
+			return c.body(bridgeXml, 200, {
 				'Content-Type': 'application/rss+xml; charset=utf-8',
 				'Cache-Control': `public, max-age=${ttl}`,
 				'X-Cache': 'MISS',
-				'X-Source': 'rsshub',
+				'X-Source': 'rss-bridge',
 			});
 		}
 	}

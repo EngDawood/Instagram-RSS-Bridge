@@ -1,63 +1,74 @@
 import * as cheerio from 'cheerio';
-import type { MediaNode, InstagramPost, InstagramUser, FetchResult } from '../types/instagram';
+import type { MediaNode, InstagramPost, InstagramUser, FetchResult, FeedContext } from '../types/instagram';
 import { RSS_ITEMS_LIMIT } from '../constants';
 
-// --- RSSHub Public Instances (failover list) ---
-const RSSHUB_INSTANCES = [
-	'https://rsshub.rssforever.com',
-	'https://hub.slarker.me',
-	'https://rsshub.pseudoyu.com',
-	'https://rsshub.ktachibana.party',
-	'https://rss.owo.nz',
-	'https://rsshub.isrss.com',
+// --- RSS-Bridge Public Instances (failover list) ---
+const RSS_BRIDGE_INSTANCES = [
+	'https://rss-bridge.sans-nuage.fr',
+	'https://rss.bloat.cat',
 ];
 
-const RSSHUB_TIMEOUT_MS = 8000;
+const RSS_BRIDGE_TIMEOUT_MS = 8000;
 
 /**
- * Try fetching RSS XML from public RSSHub instances.
- * Returns the raw RSS XML string on success, null if all instances fail.
+ * Build the RSS-Bridge URL for a given feed context.
  */
-export async function fetchFromRSSHub(username: string): Promise<string | null> {
-	for (const instance of RSSHUB_INSTANCES) {
-		const url = `${instance}/picnob/profile/${username}`;
+function buildRSSBridgeUrl(instance: string, context: FeedContext): string {
+	const base = `${instance}/?action=display&bridge=InstagramBridge&format=Atom`;
+	switch (context.type) {
+		case 'username':
+			return `${base}&context=Username&u=${encodeURIComponent(context.value)}&media_type=all`;
+		case 'hashtag':
+			return `${base}&context=Hashtag&h=${encodeURIComponent(context.value)}&media_type=all`;
+		default:
+			return `${base}&context=Username&u=${encodeURIComponent(context.value)}&media_type=all`;
+	}
+}
+
+/**
+ * Try fetching RSS/Atom XML from public RSS-Bridge instances.
+ * Returns the raw XML string on success, null if all instances fail.
+ */
+export async function fetchFromRSSBridge(context: FeedContext): Promise<string | null> {
+	for (const instance of RSS_BRIDGE_INSTANCES) {
+		const url = buildRSSBridgeUrl(instance, context);
 		try {
-			console.log(`[RSSHub] Trying ${instance} for user: ${username}...`);
+			console.log(`[RSSBridge] Trying ${instance} for ${context.type}: ${context.value}...`);
 			const controller = new AbortController();
-			const timeout = setTimeout(() => controller.abort(), RSSHUB_TIMEOUT_MS);
+			const timeout = setTimeout(() => controller.abort(), RSS_BRIDGE_TIMEOUT_MS);
 
 			const response = await fetch(url, {
 				signal: controller.signal,
 				headers: {
 					'User-Agent': 'Mozilla/5.0 (compatible; RSSBridge/1.0)',
-					Accept: 'application/rss+xml, application/xml, text/xml, */*',
+					Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
 				},
 			});
 
 			clearTimeout(timeout);
 
 			if (!response.ok) {
-				console.warn(`[RSSHub] ${instance} returned HTTP ${response.status}`);
+				console.warn(`[RSSBridge] ${instance} returned HTTP ${response.status}`);
 				continue;
 			}
 
 			const xml = await response.text();
 
-			// Basic validation: must look like RSS XML
+			// Basic validation: must look like RSS or Atom XML
 			if (!xml.includes('<rss') && !xml.includes('<feed')) {
-				console.warn(`[RSSHub] ${instance} returned non-RSS content`);
+				console.warn(`[RSSBridge] ${instance} returned non-RSS content`);
 				continue;
 			}
 
-			console.log(`[RSSHub] Success with ${instance}`);
+			console.log(`[RSSBridge] Success with ${instance}`);
 			return xml;
 		} catch (err: any) {
 			const msg = err.name === 'AbortError' ? 'Timeout' : err.message || 'Unknown error';
-			console.warn(`[RSSHub] ${instance} failed: ${msg}`);
+			console.warn(`[RSSBridge] ${instance} failed: ${msg}`);
 		}
 	}
 
-	console.warn('[RSSHub] All instances failed, falling back to mirror scraping');
+	console.warn('[RSSBridge] All instances failed, falling back to mirror scraping');
 	return null;
 }
 

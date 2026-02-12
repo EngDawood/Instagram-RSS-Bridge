@@ -3,10 +3,11 @@ import { Bot, InlineKeyboard, InputMediaBuilder } from 'grammy';
 import type { Context } from 'grammy';
 import type { ChannelConfig, ChannelSource, AdminState, TelegramMediaMessage } from '../types/telegram';
 import type { FeedContext, MediaTypeFilter } from '../types/instagram';
-import { fetchInstagramData, fetchFromRSSHub } from './instagram-client';
+import { fetchInstagramData, fetchFromRSSBridge } from './instagram-client';
 import { resolveUserId } from './user-resolver';
 import { formatMediaForTelegram } from '../utils/telegram-format';
 import { buildHeaders } from '../utils/headers';
+import { escapeHtml as escapeHtmlBot } from '../utils/text';
 import { getCached, setCached } from '../utils/cache';
 import {
 	IG_WEB_PROFILE,
@@ -235,26 +236,27 @@ export function createBot(env: Env): Bot {
 		await ctx.reply(`Fetching latest post for <b>${arg}</b>...`, { parse_mode: 'HTML' });
 
 		try {
-			// Primary: try RSSHub
-			const rsshubXml = await fetchFromRSSHub(arg);
-			if (rsshubXml) {
-				const $ = cheerio.load(rsshubXml, { xmlMode: true });
-				const firstItem = $('item').first();
+			// Primary: try RSS-Bridge
+			const bridgeXml = await fetchFromRSSBridge({ type: 'username', value: arg });
+			if (bridgeXml) {
+				const $ = cheerio.load(bridgeXml, { xmlMode: true });
+				// Support both RSS <item> and Atom <entry>
+				const firstItem = $('item').first().length ? $('item').first() : $('entry').first();
 				if (firstItem.length) {
 					const title = firstItem.find('title').text() || 'No title';
-					const link = firstItem.find('link').text() || '';
-					const description = firstItem.find('description').text() || '';
+					const link = firstItem.find('link').attr('href') || firstItem.find('link').text() || '';
+					const description = firstItem.find('description').text() || firstItem.find('content').text() || '';
 
-					// Extract first image from description HTML
+					// Extract first image from description HTML or media:content
 					const descHtml = cheerio.load(description);
-					const imgUrl = descHtml('img').first().attr('src') || '';
+					const imgUrl = descHtml('img').first().attr('src') || firstItem.find('media\\:content').attr('url') || '';
 
 					if (imgUrl) {
-						const caption = `<b>${escapeHtmlBot(title)}</b>\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSSHub</i>`;
+						const caption = `<b>${escapeHtmlBot(title)}</b>\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSS-Bridge</i>`;
 						await bot.api.sendPhoto(ctx.chat!.id, imgUrl, { caption, parse_mode: 'HTML' });
 					} else {
 						await ctx.reply(
-							`<b>${escapeHtmlBot(title)}</b>\n\n${escapeHtmlBot(description.substring(0, 500))}\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSSHub</i>`,
+							`<b>${escapeHtmlBot(title)}</b>\n\n${escapeHtmlBot(description.substring(0, 500))}\n\n<a href="${link}">View on Instagram</a>\n\n<i>Source: RSS-Bridge</i>`,
 							{ parse_mode: 'HTML' }
 						);
 					}
