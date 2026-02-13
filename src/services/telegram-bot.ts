@@ -3,7 +3,7 @@ import type { Context } from 'grammy';
 import type { ChannelConfig, ChannelSource, SourceType, AdminState, TelegramMediaMessage, FormatSettings } from '../types/telegram';
 import type { FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from './feed-fetcher';
-import { fetchInstagramUser, fetchInstagramTag } from './instagram-fetcher';
+import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from './instagram-fetcher';
 import { resolveUserId } from './user-resolver';
 import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format';
 import { buildHeaders } from '../utils/headers';
@@ -137,28 +137,6 @@ function parseSourceRef(ref: string): { type: SourceType; value: string; id: str
 	// Default: Instagram user (strip @ if present)
 	const value = ref.replace(/^@/, '');
 	return { type: 'instagram_user', value, id: `ig_user_${value}` };
-}
-
-/** Route to correct fetcher based on source type (with legacy shim). */
-function fetchForSource(source: ChannelSource): Promise<FetchResult> {
-	const type = source.type as string;
-	switch (type) {
-		case 'instagram_user':
-		case 'username': // legacy
-			return fetchInstagramUser(source.value);
-		case 'instagram_tag':
-		case 'hashtag': // legacy
-			return fetchInstagramTag(source.value);
-		case 'rss_url':
-			return fetchFeed(source.value);
-		default:
-			return Promise.resolve({
-				items: [],
-				feedTitle: '',
-				feedLink: '',
-				errors: [{ tier: 'config', message: `Unknown source type: ${source.type}` }],
-			});
-	}
 }
 
 /** Icon for source type. */
@@ -378,7 +356,7 @@ export function createBot(env: Env): Bot {
 				mediaFilter: 'all',
 				enabled: true,
 			};
-			const result = await fetchForSource(source);
+			const result = await fetchForSource(source, env);
 
 			if (result.items.length === 0) {
 				const errorInfo = result.errors.length > 0
@@ -514,7 +492,7 @@ export function createBot(env: Env): Bot {
 		);
 
 		// Fetch and send latest posts immediately
-		await fetchAndSendLatest(bot, kv, parseInt(resolved.id, 10), source, postCount);
+		await fetchAndSendLatest(bot, env, parseInt(resolved.id, 10), source, postCount);
 	});
 
 	// /unsub @channel source
@@ -1268,7 +1246,7 @@ async function handleAddSourceValue(
 	);
 
 	// Fetch and send latest posts immediately
-	await fetchAndSendLatest(bot, kv, parseInt(channelId, 10), source);
+	await fetchAndSendLatest(bot, env, parseInt(channelId, 10), source);
 }
 
 async function handleRemoveChannelConfirm(
@@ -1302,13 +1280,13 @@ async function handleRemoveChannelConfirm(
 
 async function fetchAndSendLatest(
 	bot: Bot,
-	kv: KVNamespace,
+	env: Env,
 	chatId: number,
 	source: ChannelSource,
 	count: number = 1
 ): Promise<void> {
 	try {
-		const result = await fetchForSource(source);
+		const result = await fetchForSource(source, env);
 		if (result.items.length === 0) {
 			if (result.errors.length > 0) {
 				const errorSummary = result.errors
@@ -1340,7 +1318,7 @@ async function fetchAndSendLatest(
 
 		// Set lastseen to most recent item so cron doesn't re-send
 		const lastSeenKey = `${CACHE_PREFIX_TELEGRAM_LASTSEEN}${chatId}:${source.id}`;
-		await setCached(kv, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
+		await setCached(env.CACHE, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
 	} catch (err) {
 		console.error(`fetchAndSendLatest error for ${source.value}:`, err);
 	}

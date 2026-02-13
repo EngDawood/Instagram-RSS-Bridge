@@ -1,7 +1,49 @@
 import type { MediaNode } from '../types/instagram';
+import type { FeedItem, FeedItemMedia, FeedItemMediaType } from '../types/feed';
 import type { RSSItem } from '../types/rss';
 import { IG_BASE_URL, TITLE_MAX_LENGTH } from '../constants';
 import { processCaption, truncateTitle } from './text';
+
+export function mediaNodeToFeedItem(node: MediaNode): FeedItem {
+	const postUri = `${IG_BASE_URL}/p/${node.shortcode}/`;
+	const caption = node.edge_media_to_caption.edges[0]?.node.text || '';
+	const author = node.owner.username;
+
+	const media: FeedItemMedia[] = [];
+	if (node.__typename === 'GraphSidecar' && node.edge_sidecar_to_children) {
+		for (const edge of node.edge_sidecar_to_children.edges) {
+			media.push({
+				type: edge.node.is_video ? 'video' : 'photo',
+				url: edge.node.is_video ? (edge.node.video_url || edge.node.display_url) : edge.node.display_url,
+			});
+		}
+	} else {
+		media.push({
+			type: node.is_video ? 'video' : 'photo',
+			url: node.is_video ? (node.video_url || node.display_url) : node.display_url,
+		});
+	}
+
+	let mediaType: FeedItemMediaType = 'none';
+	if (media.length > 1) {
+		mediaType = 'album';
+	} else if (media.length === 1) {
+		mediaType = media[0].type === 'video' ? 'video' : 'photo';
+	}
+
+	return {
+		id: node.shortcode,
+		link: postUri,
+		title: truncateTitle(caption, TITLE_MAX_LENGTH) || `Post by ${author}`,
+		text: caption,
+		author,
+		feedTitle: `${author} - Instagram`,
+		feedLink: `${IG_BASE_URL}/${author}/`,
+		timestamp: node.taken_at_timestamp,
+		mediaType,
+		media,
+	};
+}
 
 export function mediaNodeToRSSItem(node: MediaNode, directLinks: boolean): RSSItem {
 	const postUri = `${IG_BASE_URL}/p/${node.shortcode}/`;

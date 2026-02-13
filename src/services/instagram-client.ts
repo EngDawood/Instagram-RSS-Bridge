@@ -137,11 +137,12 @@ class InstagramClient {
 			if (imageUrl && link) {
 				const fullLink = link.startsWith('http') ? link : `https://www.pixnoy.com${link}`;
 				const id = link.split('/').filter(Boolean).pop() || crypto.randomUUID();
+				const isVideo = link.includes('/reels/') || link.includes('/tv/');
 
 				posts.push({
 					id,
 					shortcode: id,
-					type: 'image',
+					type: isVideo ? 'video' : 'image',
 					displayUrl: imageUrl,
 					caption: img.attr('alt') || 'No Caption',
 					timestamp: new Date().toISOString(),
@@ -188,19 +189,19 @@ class InstagramClient {
 			const img = $el.find('img');
 			const imageUrl = img.attr('src') || img.attr('data-src');
 			const caption = $el.find('.alt').text().trim();
-			const id = linkPath
-				.split('/')
-				.filter((p) => p && p !== 'p')
-				.pop() || crypto.randomUUID();
-
-			if (imageUrl) {
-				posts.push({
-					id,
-					shortcode: id,
-					type: 'image',
-					displayUrl: imageUrl,
-					caption: caption,
-					timestamp: new Date().toISOString(),
+								const id = linkPath
+									.split('/')
+									.filter((p) => p && p !== 'p')
+									.pop() || crypto.randomUUID();
+								const isVideo = linkPath.includes('/reels/') || linkPath.includes('/tv/');
+			
+								if (imageUrl) {
+									posts.push({
+										id,
+										shortcode: id,
+										type: isVideo ? 'video' : 'image',
+										displayUrl: imageUrl,
+										caption: caption,					timestamp: new Date().toISOString(),
 					dimensions: { height: 600, width: 600 },
 					url: link,
 					ownerUsername: username,
@@ -270,8 +271,23 @@ function toMediaNode(post: InstagramPost): MediaNode {
 
 // --- Adapter for route compatibility ---
 
-export const fetchInstagramData = async (context: any, _env?: any): Promise<FetchResult> => {
-	const username = typeof context === 'string' ? context : context.value;
+export const fetchInstagramData = async (context: FeedContext | string, _env?: any): Promise<FetchResult> => {
+	const ctx = typeof context === 'string' ? { type: 'username', value: context } : context;
+
+	if (ctx.type !== 'username') {
+		return {
+			nodes: [],
+			errors: [
+				{
+					tier: 'mirror',
+					message: `Mirror scraping not supported for context type: ${ctx.type}`,
+					status: 400,
+				},
+			],
+		};
+	}
+
+	const username = ctx.value;
 	const client = new InstagramClient();
 	try {
 		const { posts } = await client.getProfile(username);

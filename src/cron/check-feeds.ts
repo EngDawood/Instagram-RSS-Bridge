@@ -1,8 +1,11 @@
 import { Bot } from 'grammy';
 import type { ChannelConfig, ChannelSource } from '../types/telegram';
 import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
+import { Bot } from 'grammy';
+import type { ChannelConfig, ChannelSource } from '../types/telegram';
+import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
-import { fetchInstagramUser, fetchInstagramTag } from '../services/instagram-fetcher';
+import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/instagram-fetcher';
 import { getChannelConfig, saveChannelConfig, sendMediaToChannel } from '../services/telegram-bot';
 import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format';
 import { getCached, setCached } from '../utils/cache';
@@ -16,6 +19,8 @@ import {
  * Cron handler: iterate all channels, check due sources, send new posts.
  */
 export async function checkAllFeeds(env: Env): Promise<void> {
+// ... (skipping unchanged code for brevity in my thought, but I must provide full context in replace)
+
 	const channelsRaw = await getCached(env.CACHE, CACHE_KEY_TELEGRAM_CHANNELS);
 	if (!channelsRaw) return;
 
@@ -57,33 +62,8 @@ async function checkChannel(channelId: string, now: number, bot: Bot, env: Env):
 	}
 }
 
-/**
- * Route to correct fetcher based on source type.
- * Includes migration shim for legacy type names.
- */
-export function fetchForSource(source: ChannelSource): Promise<FetchResult> {
-	const type = source.type as string;
-	switch (type) {
-		case 'instagram_user':
-		case 'username': // legacy
-			return fetchInstagramUser(source.value);
-		case 'instagram_tag':
-		case 'hashtag': // legacy
-			return fetchInstagramTag(source.value);
-		case 'rss_url':
-			return fetchFeed(source.value);
-		default:
-			return Promise.resolve({
-				items: [],
-				feedTitle: '',
-				feedLink: '',
-				errors: [{ tier: 'config', message: `Unknown source type: ${source.type}` }],
-			});
-	}
-}
-
 async function checkSource(channelId: string, source: ChannelSource, bot: Bot, env: Env, config: ChannelConfig): Promise<void> {
-	const result = await fetchForSource(source);
+	const result = await fetchForSource(source, env);
 	if (result.items.length === 0) {
 		if (result.errors.length > 0) {
 			console.error(`[Cron] All tiers failed for ${source.value}:`, JSON.stringify(result.errors));
@@ -127,8 +107,11 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 		}
 	}
 
-	// Update last seen to the most recent item
-	await setCached(env.CACHE, lastSeenKey, items[0].id, TELEGRAM_CONFIG_TTL);
+	// Update last seen to the most recent item actually sent
+	if (postsToSend.length > 0) {
+		const lastSentItem = postsToSend[postsToSend.length - 1];
+		await setCached(env.CACHE, lastSeenKey, lastSentItem.id, TELEGRAM_CONFIG_TTL);
+	}
 }
 
 /**

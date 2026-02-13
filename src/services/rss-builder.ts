@@ -28,8 +28,8 @@ function buildRSSItem(item: RSSItem): string {
       <guid isPermaLink="true">${escapeXml(item.uri)}</guid>
       <dc:creator>${escapeXml(item.author)}</dc:creator>
       <pubDate>${new Date(item.timestamp * 1000).toUTCString()}</pubDate>
-      <description><![CDATA[${item.content}]]></description>
-${enclosuresXml}
+      <description><![CDATA[${item.content.replace(/]]>/g, ']]]]><![CDATA[>')}]]></description>
+      ${enclosuresXml}
 ${thumbnailXml}
     </item>`;
 }
