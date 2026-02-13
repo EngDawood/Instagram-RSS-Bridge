@@ -174,5 +174,8 @@ AGENTS.md
 CLAUDE-decisions.md
 CLAUDE-patterns.md
 CLAUDE-troubleshooting.md
-AGENTS.md
 CLAUDE.md
+.vscode/*
+.agents/*
+.claude/*
+.gemini/*
