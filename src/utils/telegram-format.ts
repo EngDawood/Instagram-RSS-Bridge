@@ -1,66 +1,119 @@
-import type { MediaNode } from '../types/instagram';
-import type { TelegramMediaMessage } from '../types/telegram';
-import { IG_BASE_URL } from '../constants';
+import type { FeedItem } from '../types/feed';
+import type { FormatSettings, TelegramMediaMessage } from '../types/telegram';
+import { DEFAULT_FORMAT_SETTINGS } from '../constants';
 
 /**
- * Convert a MediaNode into a Telegram-ready message structure.
+ * Merge hardcoded defaults < channel defaults < source overrides.
+ */
+export function resolveFormatSettings(
+	channelDefaults?: Partial<FormatSettings>,
+	sourceOverrides?: Partial<FormatSettings>
+): FormatSettings {
+	return {
+		...DEFAULT_FORMAT_SETTINGS,
+		...channelDefaults,
+		...sourceOverrides,
+	};
+}
+
+/**
+ * Convert a FeedItem into a Telegram-ready message structure.
  * Uses HTML parse mode for captions (supports <a>, <b>, <i> tags).
  */
-export function formatMediaForTelegram(node: MediaNode): TelegramMediaMessage {
-	const postUrl = `${IG_BASE_URL}/p/${node.shortcode}/`;
-	const caption = buildTelegramCaption(node, postUrl);
+export function formatFeedItem(item: FeedItem, settings?: FormatSettings): TelegramMediaMessage {
+	const resolved = settings ?? DEFAULT_FORMAT_SETTINGS;
 
-	switch (node.__typename) {
-		case 'GraphImage':
-			return { type: 'photo', url: node.display_url, caption };
+	// 'only_media' sends media with footer only (no caption body)
+	const caption = resolved.media === 'only_media'
+		? buildFooter(item, resolved)
+		: buildTelegramCaption(item, resolved);
 
-		case 'GraphVideo':
+	// 'disable' sends text-only message with no media
+	if (resolved.media === 'disable') {
+		return { type: 'text', caption };
+	}
+
+	switch (item.mediaType) {
+		case 'photo':
+			return { type: 'photo', url: item.media[0]?.url, caption };
+
+		case 'video':
 			return {
 				type: 'video',
-				url: node.video_url || node.display_url,
-				thumbnailUrl: node.display_url,
+				url: item.media[0]?.url,
+				thumbnailUrl: item.media[0]?.thumbnailUrl,
 				caption,
 			};
 
-		case 'GraphSidecar': {
-			const children = node.edge_sidecar_to_children?.edges || [];
-			if (children.length === 0) {
-				return { type: 'photo', url: node.display_url, caption };
+		case 'album': {
+			if (item.media.length === 0) {
+				return { type: 'text', caption };
 			}
-
-			const media = children.map((edge, idx) => ({
-				type: (edge.node.is_video ? 'video' : 'photo') as 'photo' | 'video',
-				media: edge.node.is_video ? (edge.node.video_url || edge.node.display_url) : edge.node.display_url,
+			const media = item.media.map((m, idx) => ({
+				type: m.type,
+				media: m.url,
 				// Only first item gets caption in a media group
 				...(idx === 0 ? { caption, parse_mode: 'HTML' } : {}),
 			}));
-
 			return { type: 'mediagroup', media, caption };
 		}
+
+		case 'none':
+		default:
+			return { type: 'text', caption };
 	}
 }
 
-function buildTelegramCaption(node: MediaNode, postUrl: string): string {
-	const rawCaption = node.edge_media_to_caption.edges[0]?.node.text || '';
-	const author = node.owner.username;
+function buildTelegramCaption(item: FeedItem, settings: FormatSettings): string {
+	let text = escapeHtml(item.text);
 
-	let text = escapeHtml(rawCaption);
+	// Instagram-specific: link @mentions and #hashtags to Instagram URLs
+	if (isInstagramItem(item)) {
+		text = text.replace(/@([\w.]+)/g, '<a href="https://www.instagram.com/$1">@$1</a>');
+		text = text.replace(/#([\w]+)/g, '<a href="https://www.instagram.com/explore/tags/$1">#$1</a>');
+	}
 
-	// Link @mentions (Telegram HTML)
-	text = text.replace(/@([\w.]+)/g, '<a href="https://www.instagram.com/$1">@$1</a>');
+	const footer = buildFooter(item, settings);
 
-	// Link #hashtags
-	text = text.replace(/#([\w]+)/g, '<a href="https://www.instagram.com/explore/tags/$1">#$1</a>');
-
-	// Telegram caption limit is 1024 chars — truncate if needed
-	const footer = `\n\n<a href="${postUrl}">View on Instagram</a> | @${author}`;
-	const maxCaptionBody = 1024 - footer.length;
+	// Telegram limits: 1024 for media captions, 4096 for text messages
+	const telegramLimit = settings.media === 'disable' || item.mediaType === 'none' ? 4096 : 1024;
+	const effectiveLimit = settings.lengthLimit > 0
+		? Math.min(settings.lengthLimit, telegramLimit)
+		: telegramLimit;
+	const maxCaptionBody = effectiveLimit - footer.length;
 
 	if (text.length > maxCaptionBody) {
 		text = text.substring(0, maxCaptionBody - 1) + '\u2026';
 	}
 
 	return text + footer;
+}
+
+function buildFooter(item: FeedItem, settings: FormatSettings): string {
+	const showAuthor = settings.author === 'enable' && item.author;
+	const postUrl = item.link;
+	const sourceName = item.feedTitle || 'Source';
+
+	switch (settings.sourceFormat) {
+		case 'title_link':
+			return showAuthor
+				? `\n\n<a href="${postUrl}">View on ${escapeHtml(sourceName)}</a> | ${escapeHtml(item.author)}`
+				: `\n\n<a href="${postUrl}">View on ${escapeHtml(sourceName)}</a>`;
+		case 'link_only':
+			return showAuthor
+				? `\n\n<a href="${postUrl}">${escapeHtml(item.author)} \u2014 ${escapeHtml(sourceName)}</a>`
+				: `\n\n<a href="${postUrl}">${escapeHtml(sourceName)}</a>`;
+		case 'bare_url':
+			return showAuthor
+				? `\n\n${escapeHtml(item.author)}\n${postUrl}`
+				: `\n\n${postUrl}`;
+		case 'disable':
+			return showAuthor ? `\n\n${escapeHtml(item.author)}` : '';
+	}
+}
+
+function isInstagramItem(item: FeedItem): boolean {
+	return item.link.includes('instagram.com') || item.feedLink.includes('instagram.com');
 }
 
 function escapeHtml(str: string): string {

@@ -14,7 +14,7 @@ const RSS_BRIDGE_TIMEOUT_MS = 8000;
  * Build the RSS-Bridge URL for a given feed context.
  */
 function buildRSSBridgeUrl(instance: string, context: FeedContext): string {
-	const base = `${instance}/?action=display&bridge=InstagramBridge&format=Atom`;
+	const base = `${instance}/?action=display&bridge=InstagramBridge&format=Atom&direct_links=on`;
 	switch (context.type) {
 		case 'username':
 			return `${base}&context=Username&u=${encodeURIComponent(context.value)}&media_type=all`;
