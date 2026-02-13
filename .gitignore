@@ -179,3 +179,5 @@ CLAUDE.md
 .agents/*
 .claude/*
 .gemini/*
+.archive/*
+mirror-scrapers-archive.ts

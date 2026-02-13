@@ -1,8 +1,6 @@
 import type { FeedItem, FetchResult } from '../types/feed';
 import type { ChannelSource } from '../types/telegram';
 import { fetchFeed } from './feed-fetcher';
-import { fetchInstagramData } from './instagram-client';
-import { mediaNodeToFeedItem } from '../utils/media';
 import { RSS_ITEMS_LIMIT } from '../constants';
 
 // --- RSS-Bridge Public Instances (failover list) ---
@@ -13,24 +11,19 @@ const RSS_BRIDGE_INSTANCES = [
 
 /**
  * Route to correct fetcher based on source type.
- * Includes fallback to mirror scraping for Instagram users.
  */
 export async function fetchForSource(source: ChannelSource, env?: Env): Promise<FetchResult> {
 	const type = source.type as string;
-	let result: FetchResult;
 
 	switch (type) {
 		case 'instagram_user':
 		case 'username': // legacy
-			result = await fetchInstagramUser(source.value);
-			break;
+			return await fetchInstagramUser(source.value);
 		case 'instagram_tag':
 		case 'hashtag': // legacy
-			result = await fetchInstagramTag(source.value);
-			break;
+			return await fetchInstagramTag(source.value);
 		case 'rss_url':
-			result = await fetchFeed(source.value);
-			break;
+			return await fetchFeed(source.value);
 		default:
 			return {
 				items: [],
@@ -39,22 +32,6 @@ export async function fetchForSource(source: ChannelSource, env?: Env): Promise<
 				errors: [{ tier: 'config', message: `Unknown source type: ${source.type}` }],
 			};
 	}
-
-	// Fallback for Instagram usernames: try mirror scraping if rss-bridge failed
-	if (result.items.length === 0 && (type === 'instagram_user' || type === 'username') && env) {
-		const mirrorResult = await fetchInstagramData({ type: 'username', value: source.value }, env);
-		if (mirrorResult.nodes.length > 0) {
-			return {
-				items: mirrorResult.nodes.map(mediaNodeToFeedItem),
-				feedTitle: `${source.value} - Instagram`,
-				feedLink: `https://www.instagram.com/${source.value}/`,
-				errors: [],
-			};
-		}
-		result.errors.push(...mirrorResult.errors);
-	}
-
-	return result;
 }
 
 /**

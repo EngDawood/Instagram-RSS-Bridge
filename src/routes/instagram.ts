@@ -1,10 +1,8 @@
 import type { Context } from 'hono';
-import type { FeedContext, MediaTypeFilter, MediaNode } from '../types/instagram';
-import { fetchFromRSSBridge, fetchInstagramData } from '../services/instagram-client';
-import { buildRSSFeed } from '../services/rss-builder';
-import { mediaNodeToRSSItem } from '../utils/media';
+import type { FeedContext, MediaTypeFilter } from '../types/instagram';
+import { fetchFromRSSBridge } from '../services/instagram-client';
 import { getCached, setCached } from '../utils/cache';
-import { IG_BASE_URL, CACHE_PREFIX_FEED, RSS_ITEMS_LIMIT } from '../constants';
+import { IG_BASE_URL, CACHE_PREFIX_FEED } from '../constants';
 
 type HonoEnv = { Bindings: Env };
 
@@ -39,7 +37,7 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 
 	const ttl = parseInt(c.env.FEED_CACHE_TTL || '900', 10);
 
-	// Primary: Try RSS-Bridge for username and hashtag feeds
+	// Try RSS-Bridge for username and hashtag feeds
 	if (context.type === 'username' || context.type === 'hashtag') {
 		const bridgeXml = await fetchFromRSSBridge(context);
 		if (bridgeXml) {
@@ -53,41 +51,14 @@ export async function handleInstagramFeed(c: Context<HonoEnv>): Promise<Response
 		}
 	}
 
-	// Fallback: Mirror scraping → MediaNode conversion → RSS build
-	const result = await fetchInstagramData(context, c.env);
-	if (result.nodes.length === 0) {
-		return c.json(
-			{
-				error: 'No data found. Instagram may be blocking requests or the account does not exist.',
-				context,
-				tiers: result.errors,
-			},
-			502
-		);
-	}
-
-	// Filter by media type and cap to limit
-	let nodes = filterByMediaType(result.nodes, mediaType).slice(0, RSS_ITEMS_LIMIT);
-
-	// Build RSS
-	const items = nodes.map((node) => mediaNodeToRSSItem(node, directLinks));
-	const feed = {
-		title: buildFeedTitle(context),
-		link: buildFeedLink(context),
-		description: `Instagram feed for ${context.value}`,
-		items,
-	};
-	const xml = buildRSSFeed(feed);
-
-	// Cache
-	await setCached(c.env.CACHE, cacheKey, xml, ttl);
-
-	return c.body(xml, 200, {
-		'Content-Type': 'application/rss+xml; charset=utf-8',
-		'Cache-Control': `public, max-age=${ttl}`,
-		'X-Cache': 'MISS',
-		'X-Source': 'mirror',
-	});
+	// RSS-Bridge failed
+	return c.json(
+		{
+			error: 'RSS-Bridge unavailable. No data found. Instagram may be blocking requests or the account does not exist.',
+			context,
+		},
+		502
+	);
 }
 
 function resolveContext(u?: string, h?: string, l?: string): FeedContext | null {
@@ -97,22 +68,6 @@ function resolveContext(u?: string, h?: string, l?: string): FeedContext | null 
 	if (h) return { type: 'hashtag', value: h };
 	if (l) return { type: 'location', value: l };
 	return null;
-}
-
-function filterByMediaType(nodes: MediaNode[], filter: MediaTypeFilter): MediaNode[] {
-	if (filter === 'all') return nodes;
-	return nodes.filter((node) => {
-		switch (filter) {
-			case 'video':
-				return node.is_video;
-			case 'picture':
-				return node.__typename === 'GraphImage';
-			case 'multiple':
-				return node.__typename === 'GraphSidecar';
-			default:
-				return true;
-		}
-	});
 }
 
 function buildFeedTitle(ctx: FeedContext): string {
