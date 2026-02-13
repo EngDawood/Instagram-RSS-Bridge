@@ -170,3 +170,9 @@ dist
 .gemini/*
 chat.md
 .mcp.json
+AGENTS.md
+CLAUDE-decisions.md
+CLAUDE-patterns.md
+CLAUDE-troubleshooting.md
+AGENTS.md
+CLAUDE.md
