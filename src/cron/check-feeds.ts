@@ -4,6 +4,7 @@ import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
 import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/instagram-fetcher';
 import { getChannelConfig, saveChannelConfig, sendMediaToChannel } from '../services/telegram-bot';
+import { sendFallbackMessage } from '../services/telegram-bot/helpers/fallback-sender';
 import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format';
 import { getCached, setCached } from '../utils/cache';
 import {
@@ -101,6 +102,12 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 			await sendMediaToChannel(bot, chatId, message, settings);
 		} catch (err) {
 			console.error(`Failed to send item ${item.id} to ${channelId}:`, err);
+			// Fallback: send thumbnail + link
+			try {
+				await sendFallbackMessage(bot, chatId, item);
+			} catch (fallbackErr) {
+				console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+			}
 		}
 	}
 

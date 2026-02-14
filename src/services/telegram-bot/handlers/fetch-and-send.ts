@@ -6,6 +6,7 @@ import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 import { setCached } from '../../../utils/cache';
 import { CACHE_PREFIX_TELEGRAM_LASTSEEN, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { sendMediaToChannel } from './send-media';
+import { sendFallbackMessage } from '../helpers/fallback-sender';
 
 /**
  * Fetch latest posts from a source and send them to a channel.
@@ -48,11 +49,17 @@ export async function fetchAndSendLatest(
 			} catch (err) {
 				failures++;
 				console.error(`Failed to send item ${item.id}:`, err);
+				// Fallback: send thumbnail + link
+				try {
+					await sendFallbackMessage(bot, chatId, item);
+				} catch (fallbackErr) {
+					console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+				}
 			}
 		}
 		if (failures > 0) {
 			try {
-				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} posts failed to send.`);
+				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} post(s) sent as fallback (thumbnail + link).`);
 			} catch (_) { /* best effort */ }
 		}
 
