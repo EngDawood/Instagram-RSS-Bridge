@@ -59,7 +59,7 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 		const channelRef = args[0];
 		// Source ref might be a URL with special chars — rejoin remaining args (except trailing number)
 		let sourceRefParts = args.slice(1);
-		let postCount = 1;
+		let postCount = 0;
 		const lastArg = sourceRefParts[sourceRefParts.length - 1];
 		if (/^\d+$/.test(lastArg) && sourceRefParts.length > 1) {
 			postCount = Math.min(Math.max(parseInt(lastArg, 10), 1), 12);
@@ -98,13 +98,18 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 		await saveChannelConfig(kv, resolved.id, config);
 
 		const typeLabel = sourceTypeLabel(parsed.type);
-		await ctx.reply(
-			`✅ <b>${resolved.title}</b> subscribed to ${typeLabel}: <b>${escapeHtmlBot(parsed.value)}</b>\n\nFetching latest posts...`,
-			{ parse_mode: 'HTML' }
-		);
-
-		// Fetch and send latest posts immediately
-		await fetchAndSendLatest(bot, env, parseInt(resolved.id, 10), source, postCount);
+		if (postCount > 0) {
+			await ctx.reply(
+				`✅ <b>${resolved.title}</b> subscribed to ${typeLabel}: <b>${escapeHtmlBot(parsed.value)}</b>\n\nFetching latest ${postCount} post(s)...`,
+				{ parse_mode: 'HTML' }
+			);
+			await fetchAndSendLatest(bot, env, parseInt(resolved.id, 10), source, postCount);
+		} else {
+			await ctx.reply(
+				`✅ <b>${resolved.title}</b> subscribed to ${typeLabel}: <b>${escapeHtmlBot(parsed.value)}</b>\n\nNew posts will arrive on next cron check.`,
+				{ parse_mode: 'HTML' }
+			);
+		}
 	});
 
 	// /unsub @channel source
