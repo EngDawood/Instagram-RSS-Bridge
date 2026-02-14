@@ -1,7 +1,7 @@
 import { type Bot, InlineKeyboard } from 'grammy';
 import type { ChannelSource } from '../../../types/telegram';
 import { parseSourceRef } from '../helpers/source-parser';
-import { fetchForSource } from '../../instagram-fetcher';
+import { fetchForSource } from '../../source-fetcher';
 import { formatFeedItem } from '../../../utils/telegram-format';
 import { sendMediaToChannel } from '../handlers/send-media';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';

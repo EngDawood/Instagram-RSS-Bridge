@@ -1,6 +1,6 @@
 import type { Bot } from 'grammy';
 import type { ChannelSource } from '../../../types/telegram';
-import { fetchForSource } from '../../instagram-fetcher';
+import { fetchForSource } from '../../source-fetcher';
 import { formatFeedItem } from '../../../utils/telegram-format';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 import { setCached } from '../../../utils/cache';

@@ -2,7 +2,7 @@ import { Bot } from 'grammy';
 import type { ChannelConfig, ChannelSource } from '../types/telegram';
 import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
-import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/instagram-fetcher';
+import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/source-fetcher';
 import { getChannelConfig, saveChannelConfig, sendMediaToChannel } from '../services/telegram-bot';
 import { sendFallbackMessage } from '../services/telegram-bot/helpers/fallback-sender';
 import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format';
