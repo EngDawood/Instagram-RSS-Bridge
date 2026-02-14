@@ -1,9 +1,6 @@
 import { Bot } from 'grammy';
 import type { ChannelConfig, ChannelSource } from '../types/telegram';
 import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
-import { Bot } from 'grammy';
-import type { ChannelConfig, ChannelSource } from '../types/telegram';
-import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
 import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/instagram-fetcher';
 import { getChannelConfig, saveChannelConfig, sendMediaToChannel } from '../services/telegram-bot';

@@ -43,8 +43,8 @@ import type { FormatSettings } from './types/telegram';
 export const DEFAULT_FORMAT_SETTINGS: FormatSettings = {
 	notification: 'normal',
 	media: 'enable',
-	author: 'enable',
-	sourceFormat: 'title_link',
+	author: 'disable',
+	sourceFormat: 'disable',
 	linkPreview: 'disable',
 	lengthLimit: 0,
 };

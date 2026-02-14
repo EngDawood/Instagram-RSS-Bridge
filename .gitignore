@@ -181,3 +181,4 @@ CLAUDE.md
 .gemini/*
 .archive/*
 mirror-scrapers-archive.ts
+reports/*
