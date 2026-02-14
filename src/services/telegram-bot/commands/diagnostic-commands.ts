@@ -1,4 +1,4 @@
-import type { Bot } from 'grammy';
+import { type Bot, InlineKeyboard } from 'grammy';
 import type { ChannelSource } from '../../../types/telegram';
 import { parseSourceRef } from '../helpers/source-parser';
 import { fetchForSource } from '../../instagram-fetcher';
