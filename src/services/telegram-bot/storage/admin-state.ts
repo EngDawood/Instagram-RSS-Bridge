@@ -7,7 +7,13 @@ import type { AdminState } from '../../../types/telegram';
  */
 export async function getAdminState(kv: KVNamespace, userId: number): Promise<AdminState | null> {
 	const raw = await getCached(kv, `${CACHE_PREFIX_TELEGRAM_STATE}${userId}`);
-	return raw ? JSON.parse(raw) : null;
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw);
+	} catch (err) {
+		console.error(`[KV] Corrupted admin state for user ${userId}:`, err);
+		return null;
+	}
 }
 
 /**

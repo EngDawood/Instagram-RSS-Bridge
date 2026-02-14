@@ -27,6 +27,9 @@ export async function sendMediaToChannel(
 		case 'mediagroup':
 			await sendMediaGroupMessage(bot, chatId, message, disableNotification);
 			break;
+		default:
+			console.error(`[sendMedia] Unknown message type: ${(message as any).type}`);
+			throw new Error(`Unknown message type: ${(message as any).type}`);
 	}
 }
 
@@ -78,7 +81,10 @@ async function sendMediaGroupMessage(
 	message: TelegramMediaMessage,
 	disableNotification: boolean
 ): Promise<void> {
-	if (!message.media || message.media.length === 0) return;
+	if (!message.media || message.media.length === 0) {
+		console.warn(`[sendMedia] mediagroup message has no media items for chat ${chatId}, skipping`);
+		return;
+	}
 
 	const media = message.media.map((item) => {
 		if (item.type === 'video') {

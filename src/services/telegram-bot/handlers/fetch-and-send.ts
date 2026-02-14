@@ -40,18 +40,29 @@ export async function fetchAndSendLatest(
 
 		// Send latest posts (oldest first)
 		const items = result.items.slice(0, count).reverse();
+		let failures = 0;
 		for (const item of items) {
 			try {
 				const message = formatFeedItem(item);
 				await sendMediaToChannel(bot, chatId, message);
 			} catch (err) {
+				failures++;
 				console.error(`Failed to send item ${item.id}:`, err);
 			}
+		}
+		if (failures > 0) {
+			try {
+				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} posts failed to send.`);
+			} catch (_) { /* best effort */ }
 		}
 
 		// Set lastseen to most recent item so cron doesn't re-send
 		const lastSeenKey = `${CACHE_PREFIX_TELEGRAM_LASTSEEN}${chatId}:${source.id}`;
-		await setCached(env.CACHE, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
+		try {
+			await setCached(env.CACHE, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
+		} catch (err) {
+			console.error(`Failed to save lastseen for ${source.value}:`, err);
+		}
 	} catch (err) {
 		console.error(`fetchAndSendLatest error for ${source.value}:`, err);
 		try {

@@ -11,7 +11,13 @@ import type { ChannelConfig } from '../../../types/telegram';
  */
 export async function getChannelsList(kv: KVNamespace): Promise<string[]> {
 	const raw = await getCached(kv, CACHE_KEY_TELEGRAM_CHANNELS);
-	return raw ? JSON.parse(raw) : [];
+	if (!raw) return [];
+	try {
+		return JSON.parse(raw);
+	} catch (err) {
+		console.error('[KV] Corrupted channels list data:', err);
+		return [];
+	}
 }
 
 /**
@@ -26,7 +32,13 @@ export async function saveChannelsList(kv: KVNamespace, list: string[]): Promise
  */
 export async function getChannelConfig(kv: KVNamespace, channelId: string): Promise<ChannelConfig | null> {
 	const raw = await getCached(kv, `${CACHE_PREFIX_TELEGRAM_CHANNEL}${channelId}:config`);
-	return raw ? JSON.parse(raw) : null;
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw);
+	} catch (err) {
+		console.error(`[KV] Corrupted config for channel ${channelId}:`, err);
+		return null;
+	}
 }
 
 /**

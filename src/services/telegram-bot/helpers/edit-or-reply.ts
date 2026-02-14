@@ -16,7 +16,11 @@ export async function editOrReply(
 			await ctx.reply(text, opts as Parameters<typeof ctx.reply>[1]);
 		}
 	} catch (err) {
-		// Fallback to reply if edit fails (e.g. message too old or identical content)
-		await ctx.reply(text, opts as Parameters<typeof ctx.reply>[1]);
+		console.warn('[editOrReply] Edit failed, falling back to reply:', err);
+		try {
+			await ctx.reply(text, opts as Parameters<typeof ctx.reply>[1]);
+		} catch (replyErr) {
+			console.error('[editOrReply] Both edit and reply failed:', replyErr);
+		}
 	}
 }
