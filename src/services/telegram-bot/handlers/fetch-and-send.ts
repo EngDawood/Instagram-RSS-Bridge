@@ -54,5 +54,10 @@ export async function fetchAndSendLatest(
 		await setCached(env.CACHE, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
 	} catch (err) {
 		console.error(`fetchAndSendLatest error for ${source.value}:`, err);
+		try {
+			await bot.api.sendMessage(chatId, `⚠️ Failed to fetch initial posts for ${escapeHtmlBot(source.value)}. The subscription was saved but the first fetch failed.`, { parse_mode: 'HTML' });
+		} catch (notifyErr) {
+			console.error('Failed to notify admin of fetchAndSendLatest failure:', notifyErr);
+		}
 	}
 }

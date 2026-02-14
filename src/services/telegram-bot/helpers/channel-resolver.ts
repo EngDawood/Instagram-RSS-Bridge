@@ -6,11 +6,12 @@ import { getChannelsList, getChannelConfig } from '../storage/kv-operations';
  */
 export async function resolveChannel(bot: Bot, ref: string): Promise<{ id: string; title: string } | null> {
 	try {
-		// Use Telegram API to get chat info
 		const chatId = ref.startsWith('@') ? ref : parseInt(ref, 10);
+		if (typeof chatId === 'number' && isNaN(chatId)) return null;
 		const chat = await bot.api.getChat(chatId);
 		return { id: String(chat.id), title: ('title' in chat && chat.title) || ref };
-	} catch (err) {
+	} catch (err: any) {
+		console.warn(`[resolveChannel] Failed to resolve "${ref}":`, err.message || err);
 		return null;
 	}
 }

@@ -27,7 +27,13 @@ export function createBot(env: Env): Bot {
 			try {
 				await ctx.answerCallbackQuery({ text: '⚠️ Error occurred. Please try again.' });
 			} catch (e) {
-				// Ignore errors while answering
+				console.error('Failed to send error callback notification:', e);
+			}
+		} else {
+			try {
+				await ctx.reply('⚠️ An unexpected error occurred. Please try again.');
+			} catch (e) {
+				console.error('Failed to send error reply:', e);
 			}
 		}
 	});
