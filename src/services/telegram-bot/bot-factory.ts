@@ -8,6 +8,7 @@ import { registerTextInputHandler } from './handlers/text-input-handler';
 import { registerChannelCallbacks } from './callbacks/channel-callbacks';
 import { registerSourceCallbacks } from './callbacks/source-callbacks';
 import { registerFormatCallbacks } from './callbacks/format-callbacks';
+import { registerDownloadCallbacks } from './callbacks/download-callbacks';
 
 /**
  * Create and configure Telegram bot instance with all handlers.
@@ -41,14 +42,20 @@ export function createBot(env: Env): Bot {
 	// Debug logging for all incoming updates (middleware)
 	bot.use(async (ctx, next) => {
 		if (ctx.callbackQuery) {
-			console.log('[DEBUG] Incoming Callback:', ctx.callbackQuery.data);
+			console.log('[DEBUG] Incoming Callback:', ctx.callbackQuery.data, '| from:', ctx.from?.id, '| adminId:', adminId);
 		}
 		await next();
 	});
 
 	// Admin authentication middleware
 	bot.use(async (ctx, next) => {
+		if (isNaN(adminId)) {
+			console.warn('[WARN] ADMIN_TELEGRAM_ID not configured — auth check skipped');
+			await next();
+			return;
+		}
 		if (ctx.from?.id !== adminId) {
+			console.log('[AUTH] Blocked user:', ctx.from?.id);
 			if (ctx.callbackQuery) {
 				await ctx.answerCallbackQuery({ text: 'Unauthorized' });
 			}
@@ -76,6 +83,7 @@ export function createBot(env: Env): Bot {
 	registerChannelCallbacks(bot, env, kv);      // ch:*, ch_toggle:*, ch_remove:*, set_interval:*, interval:*, back:channels
 	registerSourceCallbacks(bot, env, kv);       // add_src:*, src_type:*, src_detail:*, src_toggle:*, src_remove:*, src_filter:*
 	registerFormatCallbacks(bot, env, kv);       // fs:*, fd:*, fs_v:*, fd_v:*, fs_r:*, fd_r:*
+	registerDownloadCallbacks(bot, env, kv);     // dl:video, dl:audio
 
 	// Debug: catch unmatched callback queries
 	bot.on('callback_query:data', async (ctx) => {

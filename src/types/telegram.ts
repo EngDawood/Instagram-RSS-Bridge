@@ -34,16 +34,22 @@ export interface ChannelConfig {
 
 // Admin conversation state for multi-step flows
 export interface AdminState {
-	action: 'adding_channel' | 'adding_source' | 'removing_channel';
+	action: 'adding_channel' | 'adding_source' | 'removing_channel' | 'downloading_media';
 	context?: {
 		channelId?: string;
 		sourceType?: SourceType;
+		downloadUrl?: string;
+		downloadPlatform?: string;
+		/** Available video qualities for YouTube picker */
+		qualities?: Array<{ quality: string; url: string; size?: string }>;
+		/** Cached caption from quality fetch */
+		downloadCaption?: string;
 	};
 }
 
 // Formatted Telegram media message
 export interface TelegramMediaMessage {
-	type: 'photo' | 'video' | 'mediagroup' | 'text';
+	type: 'photo' | 'video' | 'audio' | 'mediagroup' | 'text';
 	url?: string;
 	thumbnailUrl?: string;
 	caption: string;
