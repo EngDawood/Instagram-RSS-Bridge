@@ -5,6 +5,7 @@ import { RSS_ITEMS_LIMIT } from '../constants';
 
 // --- RSS-Bridge Public Instances (failover list) ---
 const RSS_BRIDGE_INSTANCES = [
+	'https://rssbridge.prenghy.org',
 	'https://rss-bridge.sans-nuage.fr',
 	'https://rss.bloat.cat',
 ];

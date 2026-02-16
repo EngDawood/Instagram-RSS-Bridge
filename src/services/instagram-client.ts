@@ -2,6 +2,7 @@ import type { FeedContext } from '../types/instagram';
 
 // --- RSS-Bridge Public Instances (failover list) ---
 const RSS_BRIDGE_INSTANCES = [
+	'https://rssbridge.prenghy.org',
 	'https://rss-bridge.sans-nuage.fr',
 	'https://rss.bloat.cat',
 ];
