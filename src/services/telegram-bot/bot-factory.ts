@@ -67,7 +67,7 @@ export function createBot(env: Env): Bot {
 	// Register all command handlers (PRESERVE ORIGINAL ORDER)
 	registerInfoCommands(bot, env, kv);          // /start, /help, /cancel
 	registerChannelCommands(bot, env, kv);       // /add, /channels, /status, /enable, /disable
-	registerSubscriptionCommands(bot, env, kv);  // /sub, /unsub, /delay
+	registerSubscriptionCommands(bot, env, kv);  // /sub, /unsub, /delay, /seed, /list
 	registerFormatCommands(bot, env, kv);        // /set_default, /set
 	registerDiagnosticCommands(bot, env, kv);    // /test, /debug
 
