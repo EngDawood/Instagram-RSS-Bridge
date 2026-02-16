@@ -14,10 +14,26 @@ import {
 } from '../constants';
 
 /**
+ * Send an alert DM to the admin. Silently fails if notification itself errors.
+ */
+async function alertAdmin(bot: Bot, adminId: number, message: string): Promise<void> {
+	try {
+		await bot.api.sendMessage(adminId, message, { parse_mode: 'HTML' });
+	} catch (e) {
+		console.error('[Alert] Failed to notify admin:', e);
+	}
+}
+
+/** Truncate error text to avoid hitting Telegram message limits. */
+function truncErr(err: unknown, maxLen = 300): string {
+	const msg = err instanceof Error ? err.message : String(err);
+	return msg.length > maxLen ? msg.slice(0, maxLen) + '...' : msg;
+}
+
+/**
  * Cron handler: iterate all channels, check due sources, send new posts.
  */
 export async function checkAllFeeds(env: Env): Promise<void> {
-// ... (skipping unchanged code for brevity in my thought, but I must provide full context in replace)
 
 	const channelsRaw = await getCached(env.CACHE, CACHE_KEY_TELEGRAM_CHANNELS);
 	if (!channelsRaw) return;
@@ -26,18 +42,22 @@ export async function checkAllFeeds(env: Env): Promise<void> {
 	if (channels.length === 0) return;
 
 	const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+	const adminId = parseInt(env.ADMIN_TELEGRAM_ID, 10);
 	const now = Date.now();
 
 	for (const channelId of channels) {
 		try {
-			await checkChannel(channelId, now, bot, env);
+			await checkChannel(channelId, now, bot, env, adminId);
 		} catch (err) {
 			console.error(`Error checking channel ${channelId}:`, err);
+			await alertAdmin(bot, adminId,
+				`<b>Cron channel error</b>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(err)}</pre>`
+			);
 		}
 	}
 }
 
-async function checkChannel(channelId: string, now: number, bot: Bot, env: Env): Promise<void> {
+async function checkChannel(channelId: string, now: number, bot: Bot, env: Env, adminId: number): Promise<void> {
 	const config = await getChannelConfig(env.CACHE, channelId);
 	if (!config || !config.enabled) return;
 
@@ -53,18 +73,27 @@ async function checkChannel(channelId: string, now: number, bot: Bot, env: Env):
 	for (const source of config.sources) {
 		if (!source.enabled) continue;
 		try {
-			await checkSource(channelId, source, bot, env, config);
+			await checkSource(channelId, source, bot, env, config, adminId);
 		} catch (err) {
 			console.error(`Error checking source ${source.value} for channel ${channelId}:`, err);
+			await alertAdmin(bot, adminId,
+				`<b>Cron source error</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\n\n<pre>${truncErr(err)}</pre>`
+			);
 		}
 	}
 }
 
-async function checkSource(channelId: string, source: ChannelSource, bot: Bot, env: Env, config: ChannelConfig): Promise<void> {
+async function checkSource(channelId: string, source: ChannelSource, bot: Bot, env: Env, config: ChannelConfig, adminId: number): Promise<void> {
 	const result = await fetchForSource(source, env);
 	if (result.items.length === 0) {
 		if (result.errors.length > 0) {
 			console.error(`[Cron] All tiers failed for ${source.value}:`, JSON.stringify(result.errors));
+			const errorSummary = result.errors
+				.map((e) => `[${e.tier}] ${e.message ?? 'unknown'}`)
+				.join('\n');
+			await alertAdmin(bot, adminId,
+				`<b>Fetch failed — all instances down</b>\nSource: <code>${source.value}</code>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(errorSummary, 500)}</pre>`
+			);
 		}
 		return;
 	}
@@ -96,6 +125,7 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 	// Resolve format settings: hardcoded < channel defaults < source overrides
 	const settings = resolveFormatSettings(config.defaultFormat, source.format);
 
+	let sendFailures = 0;
 	for (const item of postsToSend) {
 		try {
 			const message = formatFeedItem(item, settings);
@@ -107,14 +137,24 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 				await sendFallbackMessage(bot, chatId, item);
 			} catch (fallbackErr) {
 				console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+				sendFailures++;
+				await alertAdmin(bot, adminId,
+					`<b>Send failed</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>`
+				);
 			}
 		}
 	}
 
 	// Update last seen to the most recent item actually sent
-	if (postsToSend.length > 0) {
+	const successfullySent = postsToSend.length - sendFailures;
+	if (successfullySent > 0) {
 		const lastSentItem = postsToSend[postsToSend.length - 1];
 		await setCached(env.CACHE, lastSeenKey, lastSentItem.id, TELEGRAM_CONFIG_TTL);
+	} else {
+		// All posts failed to send — don't update last-seen so they're retried
+		await alertAdmin(bot, adminId,
+			`<b>All posts failed to send</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItems: ${postsToSend.length}`
+		);
 	}
 }
 
