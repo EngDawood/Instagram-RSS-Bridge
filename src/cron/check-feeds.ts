@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, GrammyError } from 'grammy';
 import type { ChannelConfig, ChannelSource } from '../types/telegram';
 import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
@@ -9,15 +9,33 @@ import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format'
 import { getCached, setCached } from '../utils/cache';
 import {
 	CACHE_KEY_TELEGRAM_CHANNELS,
-	CACHE_PREFIX_TELEGRAM_LASTSEEN,
+	CACHE_PREFIX_TELEGRAM_SENT,
 	TELEGRAM_CONFIG_TTL,
 } from '../constants';
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Send an alert DM to the admin. Silently fails if notification itself errors.
+ */
+async function alertAdmin(bot: Bot, adminId: number, message: string): Promise<void> {
+	try {
+		await bot.api.sendMessage(adminId, message, { parse_mode: 'HTML' });
+	} catch (e) {
+		console.error('[Alert] Failed to notify admin:', e);
+	}
+}
+
+/** Truncate error text to avoid hitting Telegram message limits. */
+function truncErr(err: unknown, maxLen = 300): string {
+	const msg = err instanceof Error ? err.message : String(err);
+	return msg.length > maxLen ? msg.slice(0, maxLen) + '...' : msg;
+}
 
 /**
  * Cron handler: iterate all channels, check due sources, send new posts.
  */
 export async function checkAllFeeds(env: Env): Promise<void> {
-// ... (skipping unchanged code for brevity in my thought, but I must provide full context in replace)
 
 	const channelsRaw = await getCached(env.CACHE, CACHE_KEY_TELEGRAM_CHANNELS);
 	if (!channelsRaw) return;
@@ -26,18 +44,22 @@ export async function checkAllFeeds(env: Env): Promise<void> {
 	if (channels.length === 0) return;
 
 	const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+	const adminId = parseInt(env.ADMIN_TELEGRAM_ID, 10);
 	const now = Date.now();
 
 	for (const channelId of channels) {
 		try {
-			await checkChannel(channelId, now, bot, env);
+			await checkChannel(channelId, now, bot, env, adminId);
 		} catch (err) {
 			console.error(`Error checking channel ${channelId}:`, err);
+			await alertAdmin(bot, adminId,
+				`<b>Cron channel error</b>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(err)}</pre>`
+			);
 		}
 	}
 }
 
-async function checkChannel(channelId: string, now: number, bot: Bot, env: Env): Promise<void> {
+async function checkChannel(channelId: string, now: number, bot: Bot, env: Env, adminId: number): Promise<void> {
 	const config = await getChannelConfig(env.CACHE, channelId);
 	if (!config || !config.enabled) return;
 
@@ -53,18 +75,27 @@ async function checkChannel(channelId: string, now: number, bot: Bot, env: Env):
 	for (const source of config.sources) {
 		if (!source.enabled) continue;
 		try {
-			await checkSource(channelId, source, bot, env, config);
+			await checkSource(channelId, source, bot, env, config, adminId);
 		} catch (err) {
 			console.error(`Error checking source ${source.value} for channel ${channelId}:`, err);
+			await alertAdmin(bot, adminId,
+				`<b>Cron source error</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\n\n<pre>${truncErr(err)}</pre>`
+			);
 		}
 	}
 }
 
-async function checkSource(channelId: string, source: ChannelSource, bot: Bot, env: Env, config: ChannelConfig): Promise<void> {
+async function checkSource(channelId: string, source: ChannelSource, bot: Bot, env: Env, config: ChannelConfig, adminId: number): Promise<void> {
 	const result = await fetchForSource(source, env);
 	if (result.items.length === 0) {
 		if (result.errors.length > 0) {
 			console.error(`[Cron] All tiers failed for ${source.value}:`, JSON.stringify(result.errors));
+			const errorSummary = result.errors
+				.map((e) => `[${e.tier}] ${e.message ?? 'unknown'}`)
+				.join('\n');
+			await alertAdmin(bot, adminId,
+				`<b>Fetch failed — all instances down</b>\nSource: <code>${source.value}</code>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(errorSummary, 500)}</pre>`
+			);
 		}
 		return;
 	}
@@ -73,16 +104,20 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 	const items = filterItems(result.items, migrateMediaFilter(source));
 	if (items.length === 0) return;
 
-	// Get last seen item ID
-	const lastSeenKey = `${CACHE_PREFIX_TELEGRAM_LASTSEEN}${channelId}:${source.id}`;
-	const lastSeenId = await getCached(env.CACHE, lastSeenKey);
-
-	// Find new items (items more recent than last seen)
-	const newItems: FeedItem[] = [];
-	for (const item of items) {
-		if (item.id === lastSeenId) break;
-		newItems.push(item);
+	// Get set of already-sent post links
+	const sentKey = `${CACHE_PREFIX_TELEGRAM_SENT}${channelId}:${source.id}`;
+	const sentRaw = await getCached(env.CACHE, sentKey);
+	let sentLinks: string[] = [];
+	try {
+		const parsed = sentRaw ? JSON.parse(sentRaw) : [];
+		if (Array.isArray(parsed)) sentLinks = parsed;
+	} catch {
+		// Old lastSeenId format or corrupt data — start fresh
 	}
+	const sentSet = new Set(sentLinks);
+
+	// Find new items (not in sent set)
+	const newItems = items.filter(item => !sentSet.has(item.link));
 
 	if (newItems.length === 0) return;
 
@@ -96,25 +131,48 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 	// Resolve format settings: hardcoded < channel defaults < source overrides
 	const settings = resolveFormatSettings(config.defaultFormat, source.format);
 
-	for (const item of postsToSend) {
+	const sentItemLinks: string[] = [];
+	for (let i = 0; i < postsToSend.length; i++) {
+		const item = postsToSend[i];
+		if (i > 0) await sleep(1500);
 		try {
 			const message = formatFeedItem(item, settings);
 			await sendMediaToChannel(bot, chatId, message, settings);
+			sentItemLinks.push(item.link);
 		} catch (err) {
+			if (err instanceof GrammyError && err.error_code === 429) {
+				console.error(`[Cron] Rate limited on ${channelId}, stopping sends`);
+				break;
+			}
 			console.error(`Failed to send item ${item.id} to ${channelId}:`, err);
 			// Fallback: send thumbnail + link
 			try {
 				await sendFallbackMessage(bot, chatId, item);
+				sentItemLinks.push(item.link);
 			} catch (fallbackErr) {
 				console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+				if (fallbackErr instanceof GrammyError && fallbackErr.error_code === 429) {
+					console.error(`[Cron] Rate limited on ${channelId}, stopping sends`);
+					break;
+				}
+				await alertAdmin(bot, adminId,
+					`<b>Send failed</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>`
+				);
 			}
 		}
 	}
 
-	// Update last seen to the most recent item actually sent
-	if (postsToSend.length > 0) {
-		const lastSentItem = postsToSend[postsToSend.length - 1];
-		await setCached(env.CACHE, lastSeenKey, lastSentItem.id, TELEGRAM_CONFIG_TTL);
+	// Update sent links set — only record successfully sent items
+	if (sentItemLinks.length > 0) {
+		const merged = [...sentLinks, ...sentItemLinks];
+		// Cap at 50 entries to prevent unbounded growth
+		const capped = merged.slice(-50);
+		await setCached(env.CACHE, sentKey, JSON.stringify(capped), TELEGRAM_CONFIG_TTL);
+	} else {
+		// All posts failed to send — don't update so they're retried
+		await alertAdmin(bot, adminId,
+			`<b>All posts failed to send</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItems: ${postsToSend.length}`
+		);
 	}
 }
 

@@ -32,6 +32,17 @@ export async function fetchFeed(url: string, overrideFeedTitle?: string): Promis
 
 		const xml = await response.text();
 
+		// Detect RSS-Bridge error pages (cURL timeouts, PHP exceptions, etc.)
+		if (xml.includes('HttpException') || xml.includes('cURL error')) {
+			const snippet = xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+			return {
+				items: [],
+				feedTitle: '',
+				feedLink: '',
+				errors: [{ tier: 'fetch', message: `RSS-Bridge error: ${snippet}` }],
+			};
+		}
+
 		if (!xml.includes('<rss') && !xml.includes('<feed')) {
 			return {
 				items: [],

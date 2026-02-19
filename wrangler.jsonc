@@ -3,10 +3,24 @@
 	"name": "instagram-rss-bridge",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-02-10",
-	"compatibility_flags": ["nodejs_compat"],
-	"observability": {
-		"enabled": true
-	},
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+		"observability": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"logs": {
+				"enabled": true,
+				"head_sampling_rate": 1,
+				"persist": true,
+				"invocation_logs": true
+			},
+			"traces": {
+				"enabled": true,
+				"persist": true,
+				"head_sampling_rate": 1
+			}
+		},
 	// KV namespace for caching (create with: npx wrangler kv namespace create CACHE)
 	"kv_namespaces": [
 		{
@@ -21,7 +35,9 @@
 	},
 	// Cron trigger: check feeds every 5 minutes
 	"triggers": {
-		"crons": ["*/5 * * * *"]
+		"crons": [
+			"*/5 * * * *"
+		]
 	}
 	// Secrets (set via wrangler secret put):
 	// - IG_SESSION_ID

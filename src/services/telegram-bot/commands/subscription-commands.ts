@@ -4,6 +4,9 @@ import { getChannelsList, saveChannelsList, getChannelConfig, saveChannelConfig 
 import { resolveChannelArg } from '../helpers/channel-resolver';
 import { parseSourceRef, sourceTypeLabel, sourceTypeIcon } from '../helpers/source-parser';
 import { fetchAndSendLatest } from '../handlers/fetch-and-send';
+import { fetchForSource } from '../../source-fetcher';
+import { getCached, setCached } from '../../../utils/cache';
+import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 
 /**
@@ -165,5 +168,79 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 		config.checkIntervalMinutes = minutes;
 		await saveChannelConfig(kv, resolvedChannel.id, config);
 		await ctx.reply(`⏱ <b>${resolvedChannel.title}</b> delay set to <b>${minutes} min</b>`, { parse_mode: 'HTML' });
+	});
+
+	// /seed @channel [@source] — mark sources as read without sending
+	bot.command('seed', async (ctx) => {
+		const args = ctx.match?.trim().split(/\s+/);
+		if (!args || args.length < 1 || !args[0]) {
+			await ctx.reply(
+				'Usage:\n' +
+				'<code>/seed @channel</code> — mark ALL sources as read\n' +
+				'<code>/seed @channel @iguser</code> — mark single source as read',
+				{ parse_mode: 'HTML' }
+			);
+			return;
+		}
+		const channelRef = args[0];
+		const sourceRef = args.length > 1 ? args.slice(1).join(' ') : null;
+
+		const resolved = await resolveChannelArg(bot, kv, channelRef);
+		if (!resolved) {
+			await ctx.reply(`Channel "${channelRef}" not found.`);
+			return;
+		}
+
+		const config = await getChannelConfig(kv, resolved.id);
+		if (!config || config.sources.length === 0) {
+			await ctx.reply('No sources configured for this channel.');
+			return;
+		}
+
+		// Determine which sources to seed
+		let sourcesToSeed: ChannelSource[];
+		if (sourceRef) {
+			const parsed = parseSourceRef(sourceRef);
+			if (!parsed) {
+				await ctx.reply('Invalid source. Use @username, #hashtag, or a feed URL.');
+				return;
+			}
+			const found = config.sources.find((s) => s.id === parsed.id);
+			if (!found) {
+				await ctx.reply(`Source "${sourceRef}" not found in <b>${resolved.title}</b>.`, { parse_mode: 'HTML' });
+				return;
+			}
+			sourcesToSeed = [found];
+		} else {
+			sourcesToSeed = config.sources.filter((s) => s.enabled);
+		}
+
+		await ctx.reply(`Seeding ${sourcesToSeed.length} source(s) for <b>${resolved.title}</b>...`, { parse_mode: 'HTML' });
+
+		const results: string[] = [];
+		for (const source of sourcesToSeed) {
+			try {
+				const result = await fetchForSource(source, env);
+				if (result.items.length === 0) {
+					results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — no items found`);
+					continue;
+				}
+				const sentKey = `${CACHE_PREFIX_TELEGRAM_SENT}${resolved.id}:${source.id}`;
+				const sentRaw = await getCached(kv, sentKey);
+				let sentLinks: string[] = [];
+				try {
+					const parsed = sentRaw ? JSON.parse(sentRaw) : [];
+					if (Array.isArray(parsed)) sentLinks = parsed;
+				} catch { /* start fresh */ }
+				const newLinks = result.items.map(item => item.link);
+				const merged = [...sentLinks, ...newLinks].slice(-50);
+				await setCached(kv, sentKey, JSON.stringify(merged), TELEGRAM_CONFIG_TTL);
+				results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — marked ${result.items.length} items as seen`);
+			} catch (err) {
+				results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — error: ${err}`);
+			}
+		}
+
+		await ctx.reply(`<b>Seed complete:</b>\n${results.join('\n')}`, { parse_mode: 'HTML' });
 	});
 }
