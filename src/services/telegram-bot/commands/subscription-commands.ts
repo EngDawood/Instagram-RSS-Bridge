@@ -6,7 +6,7 @@ import { parseSourceRef, sourceTypeLabel, sourceTypeIcon } from '../helpers/sour
 import { fetchAndSendLatest } from '../handlers/fetch-and-send';
 import { fetchForSource } from '../../source-fetcher';
 import { getCached, setCached } from '../../../utils/cache';
-import { CACHE_PREFIX_TELEGRAM_LASTSEEN, TELEGRAM_CONFIG_TTL } from '../../../constants';
+import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 
 /**
@@ -225,8 +225,16 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 					results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — no items found`);
 					continue;
 				}
-				const lastSeenKey = `${CACHE_PREFIX_TELEGRAM_LASTSEEN}${resolved.id}:${source.id}`;
-				await setCached(kv, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
+				const sentKey = `${CACHE_PREFIX_TELEGRAM_SENT}${resolved.id}:${source.id}`;
+				const sentRaw = await getCached(kv, sentKey);
+				let sentLinks: string[] = [];
+				try {
+					const parsed = sentRaw ? JSON.parse(sentRaw) : [];
+					if (Array.isArray(parsed)) sentLinks = parsed;
+				} catch { /* start fresh */ }
+				const newLinks = result.items.map(item => item.link);
+				const merged = [...sentLinks, ...newLinks].slice(-50);
+				await setCached(kv, sentKey, JSON.stringify(merged), TELEGRAM_CONFIG_TTL);
 				results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — marked ${result.items.length} items as seen`);
 			} catch (err) {
 				results.push(`${sourceTypeIcon(source.type)} ${escapeHtmlBot(source.value)} — error: ${err}`);

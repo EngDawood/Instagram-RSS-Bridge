@@ -3,8 +3,8 @@ import type { ChannelSource } from '../../../types/telegram';
 import { fetchForSource } from '../../source-fetcher';
 import { formatFeedItem } from '../../../utils/telegram-format';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
-import { setCached } from '../../../utils/cache';
-import { CACHE_PREFIX_TELEGRAM_LASTSEEN, TELEGRAM_CONFIG_TTL } from '../../../constants';
+import { getCached, setCached } from '../../../utils/cache';
+import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { sendMediaToChannel } from './send-media';
 import { sendFallbackMessage } from '../helpers/fallback-sender';
 
@@ -63,12 +63,20 @@ export async function fetchAndSendLatest(
 			} catch (_) { /* best effort */ }
 		}
 
-		// Set lastseen to most recent item so cron doesn't re-send
-		const lastSeenKey = `${CACHE_PREFIX_TELEGRAM_LASTSEEN}${chatId}:${source.id}`;
+		// Save sent links so cron doesn't re-send
+		const sentKey = `${CACHE_PREFIX_TELEGRAM_SENT}${chatId}:${source.id}`;
 		try {
-			await setCached(env.CACHE, lastSeenKey, result.items[0].id, TELEGRAM_CONFIG_TTL);
+			const sentRaw = await getCached(env.CACHE, sentKey);
+			let sentLinks: string[] = [];
+			try {
+				const parsed = sentRaw ? JSON.parse(sentRaw) : [];
+				if (Array.isArray(parsed)) sentLinks = parsed;
+			} catch { /* start fresh */ }
+			const newLinks = result.items.slice(0, count).map(item => item.link);
+			const merged = [...sentLinks, ...newLinks].slice(-50);
+			await setCached(env.CACHE, sentKey, JSON.stringify(merged), TELEGRAM_CONFIG_TTL);
 		} catch (err) {
-			console.error(`Failed to save lastseen for ${source.value}:`, err);
+			console.error(`Failed to save sent links for ${source.value}:`, err);
 		}
 	} catch (err) {
 		console.error(`fetchAndSendLatest error for ${source.value}:`, err);

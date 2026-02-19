@@ -28,6 +28,7 @@ export const CACHE_PREFIX_FEED = 'feed:';
 export const CACHE_KEY_TELEGRAM_CHANNELS = 'telegram:channels';
 export const CACHE_PREFIX_TELEGRAM_CHANNEL = 'telegram:channel:';
 export const CACHE_PREFIX_TELEGRAM_LASTSEEN = 'telegram:lastseen:';
+export const CACHE_PREFIX_TELEGRAM_SENT = 'telegram:sent:';
 export const CACHE_PREFIX_TELEGRAM_STATE = 'telegram:state:';
 
 // Telegram config KV TTL (1 year — effectively permanent)
