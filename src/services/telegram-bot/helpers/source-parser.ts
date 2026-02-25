@@ -1,4 +1,5 @@
 import type { SourceType } from '../../../types/telegram';
+import { RSS_BRIDGE_INSTANCES } from '../../source-fetcher';
 
 /**
  * Generate a short hash for a URL to use as source ID suffix.
@@ -83,5 +84,45 @@ export function sourceTypeLabel(type: string): string {
 			return 'RSS';
 		default:
 			return type;
+	}
+}
+
+/**
+ * Detect if a URL is from a known RSS-Bridge instance and extract the native source type.
+ * E.g., an InstagramBridge URL → { type: 'instagram_user', value: 'someuser', id: 'usr_xxx' }
+ * Returns null if not a recognized RSS-Bridge URL or unknown bridge type.
+ */
+export function detectRSSBridgeSource(url: string): { type: SourceType; value: string; id: string } | null {
+	try {
+		const parsed = new URL(url);
+		const origin = parsed.origin;
+
+		// Check if the URL's origin matches any known RSS-Bridge instance
+		const isRSSBridge = RSS_BRIDGE_INSTANCES.some((inst) => origin === inst || url.startsWith(inst));
+		if (!isRSSBridge) return null;
+
+		const params = parsed.searchParams;
+		const bridge = params.get('bridge');
+
+		if (bridge === 'InstagramBridge') {
+			const context = params.get('context');
+			if (context === 'Username') {
+				const u = params.get('u');
+				if (u) return { type: 'instagram_user', value: u, id: `usr_${shortHash(u)}` };
+			}
+			if (context === 'Hashtag') {
+				const h = params.get('h');
+				if (h) return { type: 'instagram_tag', value: h, id: `tag_${shortHash(h)}` };
+			}
+		}
+
+		if (bridge === 'TikTokBridge') {
+			const username = params.get('username');
+			if (username) return { type: 'tiktok_user', value: username, id: `tiktok_${shortHash(username)}` };
+		}
+
+		return null;
+	} catch {
+		return null;
 	}
 }

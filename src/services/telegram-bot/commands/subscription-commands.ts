@@ -2,9 +2,10 @@ import type { Bot } from 'grammy';
 import type { ChannelSource } from '../../../types/telegram';
 import { getChannelsList, saveChannelsList, getChannelConfig, saveChannelConfig } from '../storage/kv-operations';
 import { resolveChannelArg } from '../helpers/channel-resolver';
-import { parseSourceRef, sourceTypeLabel, sourceTypeIcon } from '../helpers/source-parser';
+import { parseSourceRef, sourceTypeLabel, sourceTypeIcon, detectRSSBridgeSource } from '../helpers/source-parser';
 import { fetchAndSendLatest } from '../handlers/fetch-and-send';
 import { fetchForSource } from '../../source-fetcher';
+import { fetchFeed } from '../../feed-fetcher';
 import { getCached, setCached } from '../../../utils/cache';
 import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
@@ -86,15 +87,53 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 			await saveChannelsList(kv, channels);
 		}
 
-		const parsed = parseSourceRef(sourceRef);
+		let parsed = parseSourceRef(sourceRef);
 		if (!parsed) {
 			await ctx.reply('Invalid source. Use @username, #hashtag, or a feed URL.');
 			return;
 		}
 
+		// Auto-detect RSS-Bridge URLs and convert to native types for failover support
+		if (parsed.type === 'rss_url') {
+			const bridgeSource = detectRSSBridgeSource(parsed.value);
+			if (bridgeSource) {
+				parsed = bridgeSource;
+			}
+		}
+
 		if (config.sources.some((s) => s.id === parsed.id)) {
 			await ctx.reply(`Already subscribed to <b>${escapeHtmlBot(parsed.value)}</b> in <b>${resolved.title}</b>.`, { parse_mode: 'HTML' });
 			return;
+		}
+
+		// --- Validate feed before saving ---
+		await ctx.reply('⏳ Validating feed...');
+
+		if (parsed.type === 'rss_url') {
+			// Strict validation: must be valid RSS/Atom XML
+			const result = await fetchFeed(parsed.value);
+			const isNotFeed = result.errors.some((e) => e.message?.includes('not RSS or Atom'));
+			if (isNotFeed) {
+				await ctx.reply('❌ This URL is not a valid RSS/Atom feed.');
+				return;
+			}
+			if (result.errors.length > 0 && result.items.length === 0) {
+				const errMsg = result.errors.map((e) => e.message).join('; ');
+				await ctx.reply(`❌ Could not fetch feed: ${errMsg}`);
+				return;
+			}
+		} else {
+			// Lenient validation for RSS-Bridge-based sources (instagram, tiktok)
+			// RSS-Bridge may be temporarily down, so save anyway but warn
+			const tempSource: ChannelSource = { id: parsed.id, type: parsed.type, value: parsed.value, mediaFilter: 'all', enabled: true };
+			const result = await fetchForSource(tempSource, env);
+			if (result.items.length === 0 && result.errors.length > 0) {
+				const errMsg = result.errors.map((e) => e.message).join('; ');
+				await ctx.reply(
+					`⚠️ Could not verify source right now (RSS-Bridge may be down):\n<code>${escapeHtmlBot(errMsg.slice(0, 200))}</code>\n\nSaving anyway — will retry on next cron check.`,
+					{ parse_mode: 'HTML' }
+				);
+			}
 		}
 
 		const source: ChannelSource = { id: parsed.id, type: parsed.type, value: parsed.value, mediaFilter: 'all', enabled: true };
