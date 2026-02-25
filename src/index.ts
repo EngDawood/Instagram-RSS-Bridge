@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { handleInstagramFeed } from './routes/instagram';
 import { handleTelegramWebhook } from './routes/telegram';
+import { handleSetup } from './routes/setup';
 import { checkAllFeeds } from './cron/check-feeds';
 
 type HonoEnv = { Bindings: Env };
@@ -12,6 +13,7 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 app.get('/instagram', handleInstagramFeed);
 
 app.post('/telegram/webhook', handleTelegramWebhook);
+app.get('/telegram/setup', handleSetup);
 
 app.notFound((c) =>
 	c.json(

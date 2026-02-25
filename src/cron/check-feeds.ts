@@ -12,6 +12,7 @@ import {
 	CACHE_PREFIX_TELEGRAM_SENT,
 	TELEGRAM_CONFIG_TTL,
 } from '../constants';
+import { enrichFeedItems } from '../utils/media-enrichment';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -126,6 +127,10 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 
 	// Limit to 5 posts per check to avoid flooding
 	const postsToSend = newItems.slice(0, 5);
+
+	// Enrich items that link to supported platforms (e.g. TikTok) but have no media
+	await enrichFeedItems(postsToSend);
+
 	const chatId = parseInt(channelId, 10);
 
 	// Resolve format settings: hardcoded < channel defaults < source overrides

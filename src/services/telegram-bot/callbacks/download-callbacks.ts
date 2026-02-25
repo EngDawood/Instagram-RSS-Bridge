@@ -4,14 +4,16 @@ import { downloadAndSendMedia } from '../handlers/download-and-send';
 
 /**
  * Register callback handlers for media download buttons.
- * Supports: dl:video, dl:audio, dl:hd, dl:sd, dl:yt:<quality>
+ * Supports: dl:video, dl:audio, dl:hd, dl:sd, dl:yt:<quality>, dl:confirm, dl:cancel
  */
 export function registerDownloadCallbacks(bot: Bot, env: Env, kv: KVNamespace): void {
 	const adminId = parseInt(env.ADMIN_TELEGRAM_ID, 10);
 
 	// Handle all dl: callbacks with a single regex
 	bot.callbackQuery(/^dl:(.+)$/, async (ctx) => {
-		const action = ctx.match[1]; // e.g. 'video', 'audio', 'hd', 'sd', 'yt:720p'
+		const action = ctx.match[1]; // e.g. 'video', 'audio', 'hd', 'sd', 'yt:720p', 'confirm', 'cancel'
+		const chatId = ctx.chat!.id;
+		const msgId = ctx.callbackQuery.message?.message_id;
 		const state = await getAdminState(kv, adminId);
 
 		if (!state || state.action !== 'downloading_media' || !state.context?.downloadUrl) {
@@ -19,7 +21,29 @@ export function registerDownloadCallbacks(bot: Bot, env: Env, kv: KVNamespace): 
 			return;
 		}
 
-		const { downloadUrl, downloadPlatform, qualities } = state.context;
+		const { downloadUrl, downloadPlatform, qualities, directMediaUrl } = state.context;
+
+		// Cancel — clear state and dismiss the message
+		if (action === 'cancel') {
+			await clearAdminState(kv, adminId);
+			await ctx.answerCallbackQuery({ text: 'Cancelled.' });
+			if (msgId) await bot.api.editMessageText(chatId, msgId, 'Cancelled.');
+			return;
+		}
+
+		// Confirm download — force download+upload of the rejected CDN URL
+		if (action === 'confirm') {
+			if (!directMediaUrl) {
+				await ctx.answerCallbackQuery({ text: 'Session expired. Send the link again.' });
+				return;
+			}
+			await clearAdminState(kv, adminId);
+			await ctx.answerCallbackQuery();
+			// directUrl=true skips platform detection; no kv/adminId = non-interactive (auto-fallback on error)
+			await downloadAndSendMedia(bot, chatId, directMediaUrl, downloadPlatform || 'media', 'auto', msgId, true);
+			return;
+		}
+
 		await clearAdminState(kv, adminId);
 		await ctx.answerCallbackQuery();
 
@@ -40,12 +64,13 @@ export function registerDownloadCallbacks(bot: Bot, env: Env, kv: KVNamespace): 
 			if (match) {
 				await downloadAndSendMedia(
 					bot,
-					ctx.chat!.id,
+					chatId,
 					match.url,
 					downloadPlatform || 'YouTube',
 					'auto',
-					ctx.callbackQuery.message?.message_id,
+					msgId,
 					true, // directUrl flag — skip platform detection, download this URL directly
+					{ kv, adminId },
 				);
 				return;
 			}
@@ -53,13 +78,6 @@ export function registerDownloadCallbacks(bot: Bot, env: Env, kv: KVNamespace): 
 			mode = 'auto';
 		}
 
-		await downloadAndSendMedia(
-			bot,
-			ctx.chat!.id,
-			downloadUrl,
-			downloadPlatform || 'Unknown',
-			mode,
-			ctx.callbackQuery.message?.message_id
-		);
+		await downloadAndSendMedia(bot, chatId, downloadUrl, downloadPlatform || 'Unknown', mode, msgId, undefined, { kv, adminId });
 	});
 }

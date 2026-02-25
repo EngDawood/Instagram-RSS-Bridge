@@ -33,6 +33,13 @@ export function parseSourceRef(ref: string): { type: SourceType; value: string; 
 		return { type: 'instagram_tag', value, id: `tag_${shortHash(value)}` };
 	}
 
+	// TikTok user: "tiktok @username" or "tiktok username"
+	const tiktokMatch = trimmed.match(/^tiktok\s+@?([\w.]+)$/i);
+	if (tiktokMatch) {
+		const tiktokUser = tiktokMatch[1];
+		return { type: 'tiktok_user', value: tiktokUser, id: `tiktok_${shortHash(tiktokUser)}` };
+	}
+
 	// Instagram user (default, strip @ if present)
 	const value = trimmed.replace(/^@/, '');
 	if (!value) return null; // Prevent empty username
@@ -50,6 +57,8 @@ export function sourceTypeIcon(type: string): string {
 		case 'instagram_tag':
 		case 'hashtag': // legacy
 			return '#️⃣';
+		case 'tiktok_user':
+			return '🎵';
 		case 'rss_url':
 			return '🌐';
 		default:
@@ -68,6 +77,8 @@ export function sourceTypeLabel(type: string): string {
 		case 'instagram_tag':
 		case 'hashtag':
 			return 'IG Tag';
+		case 'tiktok_user':
+			return 'TikTok';
 		case 'rss_url':
 			return 'RSS';
 		default:
