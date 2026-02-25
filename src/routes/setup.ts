@@ -3,7 +3,7 @@ import { Bot } from 'grammy';
 
 type HonoEnv = { Bindings: Env };
 
-const BOT_COMMANDS = [
+export const BOT_COMMANDS = [
 	{ command: 'start', description: 'Show all commands' },
 	{ command: 'help', description: 'How to use the bot' },
 	{ command: 'add', description: 'Register a channel: /add @channel' },

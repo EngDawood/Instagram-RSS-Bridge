@@ -1,5 +1,6 @@
 import type { Bot } from 'grammy';
 import { clearAdminState } from '../storage/admin-state';
+import { BOT_COMMANDS } from '../../../routes/setup';
 
 /**
  * Register basic information and control commands.
@@ -13,6 +14,7 @@ export function registerInfoCommands(bot: Bot, env: Env, kv: KVNamespace): void 
 				'<b>Subscriptions:</b>\n' +
 				'/sub @dawood_rss @edraakorg — Subscribe to IG user\n' +
 				'/sub @dawood_rss #hashtag — Subscribe to IG hashtag\n' +
+				'/sub @dawood_rss tiktok @username — Subscribe to TikTok user\n' +
 				'/sub @dawood_rss https://... — Subscribe to RSS feed\n' +
 				'/unsub @dawood_rss source — Unsubscribe\n' +
 				'/list — List all subscriptions\n' +
@@ -36,6 +38,7 @@ export function registerInfoCommands(bot: Bot, env: Env, kv: KVNamespace): void 
 				'/help — Full help',
 			{ parse_mode: 'HTML' }
 		);
+		await ctx.api.setMyCommands(BOT_COMMANDS).catch(() => {});
 	});
 
 	bot.command('help', async (ctx) => {
