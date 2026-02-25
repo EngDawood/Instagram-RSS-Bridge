@@ -7,6 +7,7 @@ import { getCached, setCached } from '../../../utils/cache';
 import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
 import { sendMediaToChannel } from './send-media';
 import { sendFallbackMessage } from '../helpers/fallback-sender';
+import { enrichFeedItems } from '../../../utils/media-enrichment';
 
 /**
  * Fetch latest posts from a source and send them to a channel.
@@ -41,6 +42,10 @@ export async function fetchAndSendLatest(
 
 		// Send latest posts (oldest first)
 		const items = result.items.slice(0, count).reverse();
+
+		// Enrich items that link to supported platforms (e.g. TikTok) but have no media
+		await enrichFeedItems(items);
+
 		let failures = 0;
 		for (const item of items) {
 			try {

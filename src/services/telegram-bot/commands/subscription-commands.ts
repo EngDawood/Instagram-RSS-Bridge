@@ -53,6 +53,7 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 				'Usage:\n' +
 				'<code>/sub @channel @iguser</code> — Instagram user\n' +
 				'<code>/sub @channel #hashtag</code> — Instagram hashtag\n' +
+				'<code>/sub @channel tiktok @username</code> — TikTok user\n' +
 				'<code>/sub @channel https://feed-url</code> — RSS/Atom feed\n' +
 				'<code>/sub @channel @iguser 5</code> — with initial post count',
 				{ parse_mode: 'HTML' }

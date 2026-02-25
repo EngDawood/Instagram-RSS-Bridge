@@ -199,11 +199,11 @@ export async function downloadMedia(url: string, mode: 'auto' | 'audio' | 'hd' |
 
 		// 5. Facebook
 		if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch')) {
-			return await downloadFacebook(url);
+			return await downloadFacebook(url, mode);
 		}
 
 		// 6. Threads
-		if (lowerUrl.includes('threads.net')) {
+		if (lowerUrl.includes('threads.net') || lowerUrl.includes('threads.com')) {
 			return await downloadThreads(url, mode);
 		}
 
@@ -241,19 +241,25 @@ async function downloadTikTok(url: string, mode: string): Promise<DownloaderResu
 			const caption = buildCaption(data.title, data.author?.nickname);
 			const thumbnail = data.cover || data.origin_cover;
 
+			// Image/slideshow post
+			if (Array.isArray(data.images) && data.images.length > 0) {
+				const photos: MediaItem[] = data.images
+					.filter((img: any) => isUrl(typeof img === 'string' ? img : img?.url))
+					.map((img: any) => ({ type: 'photo' as const, url: typeof img === 'string' ? img : img.url }));
+				if (photos.length > 0) {
+					return { status: 'success', media: photos, caption, thumbnail };
+				}
+			}
+
 			if (mode === 'audio' && isUrl(data.music)) {
 				return { status: 'success', media: [{ type: 'audio', url: data.music }], caption, thumbnail };
 			}
-			if (mode === 'hd' && isUrl(data.hdplay)) {
-				return { status: 'success', media: [{ type: 'video', url: data.hdplay, quality: 'HD', filesize: data.hd_size }], caption, thumbnail };
-			}
 			if (mode === 'sd' && isUrl(data.play)) {
-				return { status: 'success', media: [{ type: 'video', url: data.play, quality: 'SD', filesize: data.size }], caption, thumbnail };
+				return { status: 'success', media: [{ type: 'video', url: data.play }], caption, thumbnail };
 			}
-			// Default: prefer HD, fallback to SD
-			const videoUrl = isUrl(data.hdplay) ? data.hdplay : isUrl(data.play) ? data.play : null;
-			if (videoUrl) {
-				return { status: 'success', media: [{ type: 'video', url: videoUrl, quality: isUrl(data.hdplay) ? 'HD' : 'SD' }], caption, thumbnail };
+			// Default: use play (H.264, Telegram-compatible)
+			if (isUrl(data.play)) {
+				return { status: 'success', media: [{ type: 'video', url: data.play }], caption, thumbnail };
 			}
 		}
 	} catch (e) {
@@ -347,7 +353,12 @@ async function downloadInstagram(url: string): Promise<DownloaderResult> {
 async function downloadTwitter(url: string): Promise<DownloaderResult> {
 	// Try AIO first — better for image tweets and captions
 	const aioResult = await tryAIO(url);
-	if (aioResult) return aioResult;
+	if (aioResult?.media) {
+		const videos = aioResult.media.filter(m => m.type === 'video');
+		// AIO returns all quality variants — keep only the best one (first = highest quality)
+		if (videos.length > 1) return { ...aioResult, media: [videos[0]] };
+		return aioResult;
+	}
 
 	// Fallback to twitter endpoint
 	const res = await btchFetch('twitter', url);
@@ -456,7 +467,7 @@ export function formatFileSize(bytes: number | undefined | null): string {
  * Fetch TikTok video info (sizes) without downloading.
  * Returns HD/SD sizes for the picker buttons.
  */
-export async function fetchTikTokInfo(url: string): Promise<{ caption: string; hdSize?: string; sdSize?: string; audioAvailable: boolean } | null> {
+export async function fetchTikTokInfo(url: string): Promise<{ caption: string; isImagePost: boolean; audioAvailable: boolean } | null> {
 	try {
 		const res = await btchFetch('tiktok', url);
 		const data = res.data;
@@ -464,8 +475,7 @@ export async function fetchTikTokInfo(url: string): Promise<{ caption: string; h
 			const caption = buildCaption(data.title, data.author?.nickname);
 			return {
 				caption,
-				hdSize: formatFileSize(data.hd_size),
-				sdSize: formatFileSize(data.size),
+				isImagePost: Array.isArray(data.images) && data.images.length > 0,
 				audioAvailable: isUrl(data.music),
 			};
 		}
@@ -475,10 +485,18 @@ export async function fetchTikTokInfo(url: string): Promise<{ caption: string; h
 	return null;
 }
 
-async function downloadFacebook(url: string): Promise<DownloaderResult> {
+async function downloadFacebook(url: string, mode: string = 'auto'): Promise<DownloaderResult> {
 	// Try AIO first — returns caption and author
 	const aioResult = await tryAIO(url);
-	if (aioResult) return aioResult;
+	if (aioResult && aioResult.media && aioResult.media.length > 0) {
+		const videos = aioResult.media.filter(m => m.type === 'video');
+		if (videos.length > 1) {
+			// Multiple quality entries — pick based on mode (first = HD, last = SD)
+			const selected = mode === 'sd' ? videos[videos.length - 1] : videos[0];
+			return { ...aioResult, media: [selected] };
+		}
+		return aioResult;
+	}
 
 	// Fallback to fbdown endpoint
 	const res = await btchFetch('fbdown', url);
@@ -489,10 +507,44 @@ async function downloadFacebook(url: string): Promise<DownloaderResult> {
 	return { status: 'error', error: 'No Facebook media found' };
 }
 
+/**
+ * Fetch Facebook video info for the quality picker.
+ * Returns HD/SD labels with sizes if multiple qualities exist, null if single quality.
+ */
+export async function fetchFacebookInfo(url: string): Promise<{ hdLabel: string; sdLabel: string } | null> {
+	try {
+		const res = await btchFetch('aio', url);
+		const data = res.data;
+		if (!data?.links?.video) return null;
+		const entries: any[] = Array.isArray(data.links.video)
+			? data.links.video
+			: Object.values(data.links.video);
+		if (entries.length < 2) return null;
+		const first = entries[0];
+		const last = entries[entries.length - 1];
+		const buildLabel = (e: any, defaultQuality: string): string => {
+			const quality = e?.resolution || e?.q_text || defaultQuality;
+			const size = (typeof e?.size === 'number' && e.size > 0) ? ` (${formatFileSize(e.size)})` : '';
+			return `${quality}${size}`;
+		};
+		return {
+			hdLabel: buildLabel(first, 'HD'),
+			sdLabel: buildLabel(last, 'SD'),
+		};
+	} catch (e) {
+		console.warn('[downloader] fetchFacebookInfo failed:', (e as Error).message);
+	}
+	return null;
+}
+
 async function downloadThreads(url: string, mode: string): Promise<DownloaderResult> {
 	// Try AIO first — returns caption and author
 	const aioResult = await tryAIO(url, mode);
-	if (aioResult) return aioResult;
+	if (aioResult?.media) {
+		const videos = aioResult.media.filter(m => m.type === 'video');
+		if (videos.length > 1) return { ...aioResult, media: [videos[0]] };
+		return aioResult;
+	}
 
 	// Fallback to threads endpoint
 	const res = await btchFetch('threads', url);
@@ -554,7 +606,11 @@ async function downloadSpotify(url: string): Promise<DownloaderResult> {
 async function downloadPinterest(url: string): Promise<DownloaderResult> {
 	// Try AIO first — returns caption and author
 	const aioResult = await tryAIO(url);
-	if (aioResult) return aioResult;
+	if (aioResult?.media) {
+		const videos = aioResult.media.filter(m => m.type === 'video');
+		if (videos.length > 1) return { ...aioResult, media: [videos[0]] };
+		return aioResult;
+	}
 
 	// Fallback to pinterest endpoint
 	const res = await btchFetch('pinterest', url);

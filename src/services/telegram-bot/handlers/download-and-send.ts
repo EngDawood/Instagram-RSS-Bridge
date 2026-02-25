@@ -1,6 +1,8 @@
+import { InlineKeyboard } from 'grammy';
 import type { Bot } from 'grammy';
 import { downloadMedia, formatFileSize } from '../../media-downloader';
-import { sendMediaToChannel } from './send-media';
+import { sendMediaToChannel, TelegramUrlFetchError } from './send-media';
+import { setAdminState } from '../storage/admin-state';
 import type { TelegramMediaMessage } from '../../../types/telegram';
 
 /**
@@ -8,6 +10,9 @@ import type { TelegramMediaMessage } from '../../../types/telegram';
  * Used by both direct text input and callback buttons.
  *
  * @param directUrl When true, treat `url` as a direct media URL (skip platform detection)
+ * @param options   When provided with kv + adminId, enables interactive mode:
+ *                  if Telegram can't fetch the URL directly, shows a Download/Cancel picker
+ *                  instead of auto-downloading through the Worker.
  */
 export async function downloadAndSendMedia(
 	bot: Bot,
@@ -16,8 +21,10 @@ export async function downloadAndSendMedia(
 	platform: string,
 	mode: 'auto' | 'audio' | 'hd' | 'sd' = 'auto',
 	statusMessageId?: number,
-	directUrl?: boolean
+	directUrl?: boolean,
+	options?: { kv?: KVNamespace; adminId?: number }
 ): Promise<void> {
+	const interactive = !!(options?.kv && options?.adminId);
 	const modeText = mode === 'audio' ? 'audio' : 'media';
 	const statusText = `Downloading ${modeText} from ${platform}...`;
 
@@ -25,8 +32,9 @@ export async function downloadAndSendMedia(
 		try {
 			await bot.api.editMessageText(chatId, statusMessageId, statusText);
 		} catch (e) {
-			// fallback if edit fails
-			await bot.api.sendMessage(chatId, statusText);
+			// Edit failed — send a new message and track its ID instead
+			const fallback = await bot.api.sendMessage(chatId, statusText);
+			statusMessageId = fallback.message_id;
 		}
 	} else {
 		const msg = await bot.api.sendMessage(chatId, statusText);
@@ -37,7 +45,7 @@ export async function downloadAndSendMedia(
 		// If directUrl, send the URL directly as a video (used for YouTube quality selection)
 		if (directUrl) {
 			const msg: TelegramMediaMessage = { type: 'video', url, caption: '' };
-			await sendMediaToChannel(bot, chatId, msg);
+			await sendMediaToChannel(bot, chatId, msg, undefined, interactive);
 			await bot.api.editMessageText(chatId, statusMessageId!, 'Done.');
 			return;
 		}
@@ -77,7 +85,7 @@ export async function downloadAndSendMedia(
 							parse_mode: 'HTML',
 						})),
 					};
-					await sendMediaToChannel(bot, chatId, msg);
+					await sendMediaToChannel(bot, chatId, msg, undefined, interactive);
 					await bot.api.editMessageText(chatId, statusMessageId!, `Sent ${Math.min(groupableItems.length, 10)} items as album.`);
 				} else {
 					for (const item of result.media.slice(0, 10)) {
@@ -86,7 +94,7 @@ export async function downloadAndSendMedia(
 							url: item.url,
 							caption: caption,
 						};
-						await sendMediaToChannel(bot, chatId, msg);
+						await sendMediaToChannel(bot, chatId, msg, undefined, interactive);
 					}
 					await bot.api.editMessageText(chatId, statusMessageId!, doneText);
 				}
@@ -97,7 +105,7 @@ export async function downloadAndSendMedia(
 					url: item.url,
 					caption: caption,
 				};
-				await sendMediaToChannel(bot, chatId, msg);
+				await sendMediaToChannel(bot, chatId, msg, undefined, interactive);
 				await bot.api.editMessageText(chatId, statusMessageId!, doneText);
 			}
 			return;
@@ -105,11 +113,44 @@ export async function downloadAndSendMedia(
 
 		await bot.api.editMessageText(chatId, statusMessageId!, 'No media found.');
 	} catch (err: any) {
+		// Telegram couldn't fetch the URL directly — show picker in interactive mode
+		if (err instanceof TelegramUrlFetchError && options?.kv && options?.adminId) {
+			await setAdminState(options.kv, options.adminId, {
+				action: 'downloading_media',
+				context: {
+					downloadUrl: url,
+					downloadPlatform: platform,
+					directMediaUrl: err.mediaUrl,
+				},
+			});
+			const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(err.mediaUrl)}`;
+			const keyboard = new InlineKeyboard()
+				.text('📥 Download', 'dl:confirm')
+				.text('❌ Cancel', 'dl:cancel')
+				.row()
+				.url('📤 Send to @urluploadxbot', shareUrl);
+			await bot.api.editMessageText(
+				chatId,
+				statusMessageId!,
+				`Telegram can't fetch this file directly.\n\n<code>${err.mediaUrl}</code>`,
+				{ parse_mode: 'HTML', reply_markup: keyboard }
+			);
+			return;
+		}
+
 		console.error('[downloader] Download and send error:', err);
 		const msg = err.message || 'Unknown error';
 		// If file is too large for Telegram, send the link as text instead
 		if (msg.includes('too large') || msg.includes('Too large')) {
-			await bot.api.editMessageText(chatId, statusMessageId!, `File too large for Telegram. Here's the link:\n${url}`);
+			const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}`;
+			const keyboard = new InlineKeyboard()
+				.url('📤 Send to @urluploadxbot', shareUrl);
+			await bot.api.editMessageText(
+				chatId,
+				statusMessageId!,
+				`File too large for Telegram (>50MB).\n\n<code>${url}</code>`,
+				{ parse_mode: 'HTML', reply_markup: keyboard }
+			);
 		} else {
 			await bot.api.editMessageText(chatId, statusMessageId!, `Error: ${msg}`);
 		}

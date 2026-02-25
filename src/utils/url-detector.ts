@@ -9,7 +9,7 @@ const PLATFORM_PATTERNS: Array<{ platform: DetectedUrl['platform']; pattern: Reg
 	{ platform: 'TikTok', pattern: /https?:\/\/(?:(?:www|vm|vt)\.)?tiktok\.com\/\S+/i },
 	{ platform: 'Twitter', pattern: /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/\S+\/status\/\S+/i },
 	{ platform: 'Facebook', pattern: /https?:\/\/(?:(?:www\.)?facebook\.com\/(?:share\/r\/|watch\/|\S+\/videos\/)|fb\.watch\/)\S+/i },
-	{ platform: 'Threads', pattern: /https?:\/\/(?:www\.)?threads\.net\/@\S+\/post\/\S+/i },
+	{ platform: 'Threads', pattern: /https?:\/\/(?:www\.)?threads\.(?:net|com)\/@\S+\/post\/\S+/i },
 	{ platform: 'SoundCloud', pattern: /https?:\/\/(?:www\.)?soundcloud\.com\/\S+\/\S+/i },
 	{ platform: 'Spotify', pattern: /https?:\/\/(?:open\.)?spotify\.com\/track\/\S+/i },
 	{ platform: 'Pinterest', pattern: /https?:\/\/(?:[a-z]{2}\.)?pinterest\.com\/pin\/\S+|https?:\/\/pin\.it\/\S+/i },

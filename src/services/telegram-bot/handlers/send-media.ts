@@ -1,19 +1,58 @@
-import { InputFile, InputMediaBuilder } from 'grammy';
+import { GrammyError, InputFile, InputMediaBuilder } from 'grammy';
 import type { Bot } from 'grammy';
 import type { TelegramMediaMessage, FormatSettings } from '../../../types/telegram';
 
-const URL_SIZE_LIMIT = 10 * 1024 * 1024; // 10MB — above this, Telegram needs upload instead of URL
 const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB Telegram bot upload limit
+const MEDIA_CAPTION_LIMIT = 1024; // Telegram caption limit for photo/video/audio/mediagroup
+
+/** Thrown when Telegram rejects a URL (can't fetch it). Caller decides how to handle. */
+export class TelegramUrlFetchError extends Error {
+	constructor(public readonly mediaUrl: string) {
+		super(`Telegram could not fetch URL: ${mediaUrl}`);
+	}
+}
+
+function isTelegramUrlError(err: unknown): boolean {
+	return (
+		err instanceof GrammyError &&
+		(err.description.includes('failed to get HTTP URL') ||
+			err.description.includes('wrong file identifier'))
+	);
+}
+
+/** If caption fits, attach it to media. If too long, send media without caption then post caption as separate text. */
+async function sendWithCaption(
+	send: (caption: string) => Promise<unknown>,
+	bot: Bot,
+	chatId: number,
+	caption: string | undefined,
+	disableNotification: boolean
+): Promise<void> {
+	const text = caption || '';
+	if (text.length <= MEDIA_CAPTION_LIMIT) {
+		await send(text);
+	} else {
+		await send('');
+		await bot.api.sendMessage(chatId, text, {
+			parse_mode: 'HTML',
+			disable_notification: disableNotification,
+		});
+	}
+}
 
 /**
  * Send a formatted media message to a Telegram chat.
- * Handles text, photo, video, and media group types.
+ * Handles text, photo, video, audio, and media group types.
+ *
+ * @param interactive When true, throws TelegramUrlFetchError on URL rejection (for user-facing
+ *   download flow). When false (default), auto-falls back to download+upload silently (for cron).
  */
 export async function sendMediaToChannel(
 	bot: Bot,
 	chatId: number,
 	message: TelegramMediaMessage,
-	settings?: FormatSettings
+	settings?: FormatSettings,
+	interactive = false
 ): Promise<void> {
 	const disableNotification = settings?.notification === 'muted';
 
@@ -22,13 +61,13 @@ export async function sendMediaToChannel(
 			await sendTextMessage(bot, chatId, message, disableNotification, settings);
 			break;
 		case 'photo':
-			await sendPhotoMessage(bot, chatId, message, disableNotification);
+			await sendPhotoMessage(bot, chatId, message, disableNotification, interactive);
 			break;
 		case 'video':
-			await sendVideoMessage(bot, chatId, message, disableNotification);
+			await sendVideoMessage(bot, chatId, message, disableNotification, interactive);
 			break;
 		case 'audio':
-			await sendAudioMessage(bot, chatId, message, disableNotification);
+			await sendAudioMessage(bot, chatId, message, disableNotification, interactive);
 			break;
 		case 'mediagroup':
 			await sendMediaGroupMessage(bot, chatId, message, disableNotification);
@@ -57,32 +96,75 @@ async function sendPhotoMessage(
 	bot: Bot,
 	chatId: number,
 	message: TelegramMediaMessage,
-	disableNotification: boolean
+	disableNotification: boolean,
+	interactive: boolean
 ): Promise<void> {
 	if (!message.url) throw new Error('Photo URL is missing');
-	const opts = {
-		caption: message.caption,
-		parse_mode: 'HTML' as const,
-		disable_notification: disableNotification,
-	};
-	const source = await resolveMedia(message.url, 'photo.jpg');
-	await bot.api.sendPhoto(chatId, source, opts);
+	const url = message.url;
+	try {
+		await sendWithCaption(
+			(caption) => bot.api.sendPhoto(chatId, url, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	} catch (err) {
+		if (!isTelegramUrlError(err)) throw err;
+		if (interactive) throw new TelegramUrlFetchError(url);
+		const file = await downloadAsInputFile(url, 'photo.jpg');
+		await sendWithCaption(
+			(caption) => bot.api.sendPhoto(chatId, file, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	}
 }
 
 async function sendVideoMessage(
 	bot: Bot,
 	chatId: number,
 	message: TelegramMediaMessage,
-	disableNotification: boolean
+	disableNotification: boolean,
+	interactive: boolean
 ): Promise<void> {
 	if (!message.url) throw new Error('Video URL is missing');
-	const opts = {
-		caption: message.caption,
-		parse_mode: 'HTML' as const,
-		disable_notification: disableNotification,
-	};
-	const source = await resolveMedia(message.url, 'video.mp4');
-	await bot.api.sendVideo(chatId, source, opts);
+	const url = message.url;
+	try {
+		await sendWithCaption(
+			(caption) => bot.api.sendVideo(chatId, url, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	} catch (err) {
+		if (!isTelegramUrlError(err)) throw err;
+		if (interactive) throw new TelegramUrlFetchError(url);
+		const file = await downloadAsInputFile(url, 'video.mp4');
+		await sendWithCaption(
+			(caption) => bot.api.sendVideo(chatId, file, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	}
+}
+
+async function sendAudioMessage(
+	bot: Bot,
+	chatId: number,
+	message: TelegramMediaMessage,
+	disableNotification: boolean,
+	interactive: boolean
+): Promise<void> {
+	if (!message.url) throw new Error('Audio URL is missing');
+	const url = message.url;
+	try {
+		await sendWithCaption(
+			(caption) => bot.api.sendAudio(chatId, url, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	} catch (err) {
+		if (!isTelegramUrlError(err)) throw err;
+		if (interactive) throw new TelegramUrlFetchError(url);
+		const file = await downloadAsInputFile(url, 'audio.mp3');
+		await sendWithCaption(
+			(caption) => bot.api.sendAudio(chatId, file, { caption, parse_mode: 'HTML', disable_notification: disableNotification }),
+			bot, chatId, message.caption, disableNotification
+		);
+	}
 }
 
 async function sendMediaGroupMessage(
@@ -99,7 +181,14 @@ async function sendMediaGroupMessage(
 	const resolvedMedia = await Promise.all(
 		message.media.map(async (item) => {
 			const ext = item.type === 'video' ? 'mp4' : 'jpg';
-			const source = await resolveMedia(item.media, `media.${ext}`);
+			// Always try URL first; if Telegram rejects it, fall back to download+upload
+			let source: string | InputFile = item.media;
+			try {
+				// Validate by attempting a dummy resolve — actual rejection caught during sendMediaGroup
+				source = item.media;
+			} catch {
+				source = await downloadAsInputFile(item.media, `media.${ext}`);
+			}
 			const opts = { caption: item.caption, parse_mode: item.parse_mode as 'HTML' | undefined };
 			return item.type === 'video'
 				? InputMediaBuilder.video(source, opts)
@@ -107,57 +196,27 @@ async function sendMediaGroupMessage(
 		})
 	);
 
-	await bot.api.sendMediaGroup(chatId, resolvedMedia, {
-		disable_notification: disableNotification,
-	});
-}
-
-/** Hosts that Telegram can fetch directly — everything else gets downloaded+uploaded */
-const TELEGRAM_FRIENDLY_HOSTS = ['cdninstagram.com', 'fbcdn.net', 'pbs.twimg.com', 'twimg.com', 'tokcdn.com', 'telegram.org', 't.me'];
-
-/**
- * Resolve a media URL for Telegram. URLs from known Telegram-friendly CDNs are passed through;
- * all other URLs are downloaded and uploaded as files to avoid "failed to get HTTP URL content".
- */
-async function resolveMedia(url: string, filename: string): Promise<string | InputFile> {
-	const isTelegramFriendly = TELEGRAM_FRIENDLY_HOSTS.some(host => url.includes(host));
-
-	if (isTelegramFriendly) {
-		const size = await getFileSize(url);
-		if (size !== null && size <= URL_SIZE_LIMIT) {
-			return url;
-		}
-	}
-
-	// Download+upload for all third-party CDN URLs
-	return downloadAsInputFile(url, filename);
-}
-
-async function getFileSize(url: string): Promise<number | null> {
 	try {
-		const resp = await fetch(url, { method: 'HEAD' });
-		if (!resp.ok) return null;
-		const cl = resp.headers.get('content-length');
-		return cl ? Number(cl) : null;
-	} catch {
-		return null;
+		await bot.api.sendMediaGroup(chatId, resolvedMedia, {
+			disable_notification: disableNotification,
+		});
+	} catch (err) {
+		if (!isTelegramUrlError(err)) throw err;
+		// Re-resolve all items as uploaded files and retry
+		const uploadedMedia = await Promise.all(
+			message.media.slice(0, 10).map(async (item) => {
+				const ext = item.type === 'video' ? 'mp4' : 'jpg';
+				const file = await downloadAsInputFile(item.media, `media.${ext}`);
+				const opts = { caption: item.caption, parse_mode: item.parse_mode as 'HTML' | undefined };
+				return item.type === 'video'
+					? InputMediaBuilder.video(file, opts)
+					: InputMediaBuilder.photo(file, opts);
+			})
+		);
+		await bot.api.sendMediaGroup(chatId, uploadedMedia, {
+			disable_notification: disableNotification,
+		});
 	}
-}
-
-async function sendAudioMessage(
-	bot: Bot,
-	chatId: number,
-	message: TelegramMediaMessage,
-	disableNotification: boolean
-): Promise<void> {
-	if (!message.url) throw new Error('Audio URL is missing');
-	const opts = {
-		caption: message.caption,
-		parse_mode: 'HTML' as const,
-		disable_notification: disableNotification,
-	};
-	const source = await resolveMedia(message.url, 'audio.mp3');
-	await bot.api.sendAudio(chatId, source, opts);
 }
 
 async function downloadAsInputFile(url: string, filename: string): Promise<InputFile> {

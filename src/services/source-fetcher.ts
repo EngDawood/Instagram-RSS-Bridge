@@ -10,6 +10,9 @@ const RSS_BRIDGE_INSTANCES = [
 	'https://rss.bloat.cat',
 ];
 
+// RSS-Bridge instance known to have TikTokBridge enabled
+const RSSBRIDGE_TIKTOK_INSTANCE = 'https://rss-bridge.org/bridge01';
+
 /**
  * Route to correct fetcher based on source type.
  */
@@ -25,6 +28,8 @@ export async function fetchForSource(source: ChannelSource, env?: Env): Promise<
 			return await fetchInstagramTag(source.value);
 		case 'rss_url':
 			return await fetchFeed(source.value);
+		case 'tiktok_user':
+			return await fetchTikTokUser(source.value);
 		default:
 			return {
 				items: [],
@@ -33,6 +38,22 @@ export async function fetchForSource(source: ChannelSource, env?: Env): Promise<
 				errors: [{ tier: 'config', message: `Unknown source type: ${source.type}` }],
 			};
 	}
+}
+
+/**
+ * Build the RSS-Bridge URL for a TikTok username.
+ */
+function buildTikTokUserUrl(instance: string, username: string): string {
+	return `${instance}/?action=display&bridge=TikTokBridge&context=By+user&username=${encodeURIComponent(username)}&format=Atom`;
+}
+
+/**
+ * Fetch TikTok user feed via RSS-Bridge.
+ */
+export async function fetchTikTokUser(username: string): Promise<FetchResult> {
+	const url = buildTikTokUserUrl(RSSBRIDGE_TIKTOK_INSTANCE, username);
+	console.log(`[TikTok] Fetching RSS-Bridge feed for @${username}...`);
+	return fetchFeed(url);
 }
 
 /**

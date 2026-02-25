@@ -10,7 +10,7 @@ export interface FormatSettings {
 	lengthLimit: number; // 0 = unlimited, or 256/512/1024
 }
 
-export type SourceType = 'instagram_user' | 'instagram_tag' | 'rss_url';
+export type SourceType = 'instagram_user' | 'instagram_tag' | 'rss_url' | 'tiktok_user';
 
 // Channel source configuration
 export interface ChannelSource {
@@ -44,6 +44,8 @@ export interface AdminState {
 		qualities?: Array<{ quality: string; url: string; size?: string }>;
 		/** Cached caption from quality fetch */
 		downloadCaption?: string;
+		/** Direct CDN media URL that Telegram rejected (for dl:confirm fallback) */
+		directMediaUrl?: string;
 	};
 }
 

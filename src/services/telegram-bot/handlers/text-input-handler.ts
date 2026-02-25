@@ -5,7 +5,7 @@ import { addChannelDirect } from './add-channel-flow';
 import { handleAddSourceValue, handleRemoveChannelConfirm } from './add-source-flow';
 import { detectMediaUrl } from '../../../utils/url-detector';
 import { downloadAndSendMedia } from './download-and-send';
-import { fetchYouTubeQualities, fetchTikTokInfo } from '../../media-downloader';
+import { fetchYouTubeQualities, fetchFacebookInfo, fetchTikTokInfo } from '../../media-downloader';
 
 /**
  * Register the main text handler to process multi-step admin flows.
@@ -68,31 +68,58 @@ export function registerTextInputHandler(bot: Bot, env: Env, kv: KVNamespace): v
 				return;
 			}
 
-			// TikTok — fetch info for sizes, then show HD / SD / Audio
+			// TikTok — image posts download directly; video posts show Video / Audio picker
 			if (platform === 'TikTok') {
-				const statusMsg = await ctx.reply('Fetching video info...');
+				const statusMsg = await ctx.reply('Fetching post info...');
 				const ttInfo = await fetchTikTokInfo(url);
-				const keyboard = new InlineKeyboard();
-				const hdLabel = ttInfo?.hdSize ? `HD Video (${ttInfo.hdSize})` : 'HD Video';
-				const sdLabel = ttInfo?.sdSize ? `SD Video (${ttInfo.sdSize})` : 'SD Video';
-				keyboard.text(hdLabel, 'dl:hd').text(sdLabel, 'dl:sd');
-				keyboard.row().text('Audio', 'dl:audio');
-				await bot.api.editMessageText(
-					ctx.chat!.id,
-					statusMsg.message_id,
-					`<b>${platform}</b> — Choose format:`,
-					{ parse_mode: 'HTML', reply_markup: keyboard }
-				);
-				await setAdminState(kv, adminId, {
-					action: 'downloading_media',
-					context: { downloadUrl: url, downloadPlatform: platform },
-				});
+				if (ttInfo?.isImagePost) {
+					// Slideshow — auto-download, no picker needed
+					await downloadAndSendMedia(bot, ctx.chat!.id, url, platform, 'auto', statusMsg.message_id, undefined, { kv, adminId });
+				} else {
+					const keyboard = new InlineKeyboard()
+						.text('Video', 'dl:sd')
+						.text('Audio', 'dl:audio');
+					await bot.api.editMessageText(
+						ctx.chat!.id,
+						statusMsg.message_id,
+						`<b>${platform}</b> — Choose format:`,
+						{ parse_mode: 'HTML', reply_markup: keyboard }
+					);
+					await setAdminState(kv, adminId, {
+						action: 'downloading_media',
+						context: { downloadUrl: url, downloadPlatform: platform },
+					});
+				}
+				return;
+			}
+
+			// Facebook — show HD/SD picker if multiple qualities available
+			if (platform === 'Facebook') {
+				const statusMsg = await ctx.reply('Fetching video info...');
+				const fbInfo = await fetchFacebookInfo(url);
+				if (fbInfo) {
+					const keyboard = new InlineKeyboard()
+						.text(fbInfo.hdLabel, 'dl:hd')
+						.text(fbInfo.sdLabel, 'dl:sd');
+					await bot.api.editMessageText(
+						ctx.chat!.id,
+						statusMsg.message_id,
+						`<b>${platform}</b> — Choose quality:`,
+						{ parse_mode: 'HTML', reply_markup: keyboard }
+					);
+					await setAdminState(kv, adminId, {
+						action: 'downloading_media',
+						context: { downloadUrl: url, downloadPlatform: platform },
+					});
+				} else {
+					await downloadAndSendMedia(bot, ctx.chat!.id, url, platform, 'auto', statusMsg.message_id, undefined, { kv, adminId });
+				}
 				return;
 			}
 
 			// Automatic download for other platforms
 			const mode = (platform === 'SoundCloud' || platform === 'Spotify') ? 'audio' : 'auto';
-			await downloadAndSendMedia(bot, ctx.chat!.id, url, platform, mode);
+			await downloadAndSendMedia(bot, ctx.chat!.id, url, platform, mode, undefined, undefined, { kv, adminId });
 			return;
 		}
 
