@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "instagram-rss-bridge",
+	"name": "rss-bridge",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-02-10",
 	"compatibility_flags": [
