@@ -34,7 +34,11 @@ If you intend to call multiple tools and there are no dependencies between the t
 
 ## Project Overview
 
-Instagram RSS Bridge is a Cloudflare Worker that converts Instagram profiles, hashtags, and locations into RSS 2.0 feeds. Inspired by [RSS-Bridge's InstagramBridge](https://github.com/RSS-Bridge/rss-bridge/blob/master/bridges/InstagramBridge.php).
+Instagram RSS Bridge is a Cloudflare Worker with two main features:
+1. **RSS Endpoint** — Converts Instagram profiles, hashtags, and RSS feeds to RSS 2.0 XML
+2. **Telegram Bot** — Admin bot for managing channel subscriptions and auto-posting from feeds via cron
+
+Inspired by [RSS-Bridge's InstagramBridge](https://github.com/RSS-Bridge/rss-bridge/blob/master/bridges/InstagramBridge.php) and [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot).
 
 ## Commands
 
@@ -50,21 +54,40 @@ Instagram RSS Bridge is a Cloudflare Worker that converts Instagram profiles, ha
 ```
 src/
 ├── index.ts                  # Hono app entry point, routes
-├── constants.ts              # Instagram API endpoints, query hashes, defaults
+├── constants.ts              # Instagram API endpoints, query hashes, Telegram defaults
 ├── types/                    # TypeScript interfaces
 │   ├── instagram.ts          # Instagram API response types
-│   └── rss.ts                # RSS feed/item types
+│   ├── rss.ts                # RSS feed/item types
+│   ├── telegram.ts           # Telegram bot types (ChannelConfig, FormatSettings, etc.)
+│   └── feed.ts               # Universal feed item types
 ├── routes/
-│   └── instagram.ts          # /instagram route handler (orchestration)
+│   ├── instagram.ts          # /instagram route handler (RSS endpoint)
+│   └── telegram.ts           # /telegram webhook route (bot updates)
 ├── services/
-│   ├── instagram-client.ts   # Multi-tier Instagram data fetching
+│   ├── instagram-client.ts   # RSS-Bridge fetching (primary)
+│   ├── instagram-fetcher.ts  # Multi-tier fetch orchestration
+│   ├── media-downloader.ts   # Multi-platform media downloader (btch API, 9 platforms)
+│   ├── feed-fetcher.ts       # Generic RSS/Atom feed parser
 │   ├── user-resolver.ts      # Username → ID resolution + KV cache
-│   └── rss-builder.ts        # RSS 2.0 XML generation
+│   ├── rss-builder.ts        # RSS 2.0 XML generation
+│   └── telegram-bot/         # Modular Telegram bot
+│       ├── index.ts          # Re-exports createBot, getChannelConfig, etc.
+│       ├── bot-factory.ts    # Bot instance creation, middleware, error handling
+│       ├── commands/         # /start, /add, /sub, /channels, /format, /debug
+│       ├── callbacks/        # Inline keyboard callback handlers (incl. download-callbacks)
+│       ├── handlers/         # Multi-step flows (add source, fetch & send, download-and-send)
+│       ├── helpers/          # Shared utilities (channel resolver, fallback sender)
+│       ├── storage/          # KV operations (channel configs, admin state)
+│       └── views/            # Keyboard builders, message formatters
+├── cron/
+│   └── check-feeds.ts        # Scheduled job: fetch feeds & send to channels
 └── utils/
     ├── headers.ts            # Instagram request header builder
     ├── media.ts              # MediaNode → RSS item conversion
-    ├── text.ts               # Caption processing, hashtag/mention linking
-    └── cache.ts              # KV cache helpers
+    ├── text.ts               # HTML escaping, caption processing
+    ├── cache.ts              # KV cache helpers
+    ├── url-detector.ts       # Platform URL detection (9 platforms)
+    └── telegram-format.ts    # FeedItem → Telegram message formatting
 ```
 
 ## Conventions
@@ -90,6 +113,7 @@ Session cookies (`IG_SESSION_ID`, `IG_DS_USER_ID`) are required for reliable acc
 
 ## API
 
+### RSS Endpoint
 ```
 GET /instagram?u=<username>                    # User feed
 GET /instagram?h=<hashtag>                     # Hashtag feed
@@ -98,3 +122,25 @@ GET /instagram?u=<username>&media_type=video   # Filter: all|video|picture|multi
 GET /instagram?u=<username>&direct_links=true  # Use direct CDN URLs
 GET /health                                    # Health check
 ```
+
+### Telegram Bot
+```
+POST /telegram                                 # Webhook endpoint for bot updates
+```
+
+**Bot commands:**
+- `/start`, `/help` — Info and usage
+- `/add @channel` — Register a Telegram channel
+- `/sub @channel @iguser` — Subscribe to Instagram user (no initial fetch)
+- `/sub @channel @iguser 5` — Subscribe + fetch 5 latest posts
+- `/unsub @channel source` — Unsubscribe from source
+- `/channels` — List registered channels
+- `/status` — Show all subscriptions
+- `/format` — Configure message formatting (author, media, source link, etc.)
+- `/debug`, `/test` — Diagnostic commands
+
+**Media download:** Send a supported URL (TikTok, Instagram, Twitter/X, YouTube, Facebook, Threads, SoundCloud, Spotify, Pinterest) to the bot to download and receive media. YouTube offers quality picker. Facebook offers HD/SD picker. TikTok offers Video/Audio picker (image slideshows auto-download). Threads supports both `threads.net` and `threads.com` domains.
+
+**Media send strategy (URL-first):** `send-media.ts` always tries Telegram URL pass-through first (no host whitelist). If Telegram can't fetch the URL, interactive mode shows `[📥 Download] [❌ Cancel] [📤 Send to @urluploadxbot]` buttons with the direct URL in monospace. Cron/channel posting auto-falls back to download+upload silently. Files >50MB show the URL + @urluploadxbot button. `TelegramUrlFetchError` is thrown on URL rejection in interactive mode; `downloadAndSendMedia` catches it and stores `directMediaUrl` in KV for the `dl:confirm` callback. Twitter/Threads/Pinterest deduplicate AIO quality variants to single best video.
+
+**Cron job:** `check-feeds.ts` runs every N minutes (configurable per channel), fetches new posts, sends to Telegram channels.

@@ -23,7 +23,7 @@ if (!token || !chatId) {
 (async () => {
 	// 1. Register webhook with correct allowed_updates
 	const webhookSecret = getVar('TELEGRAM_WEBHOOK_SECRET');
-	const webhookUrl = 'https://instagram-rss-bridge.engdawood.workers.dev/telegram/webhook';
+	const webhookUrl = 'https://rss-bridge.engdawood.workers.dev/telegram/webhook';
 
 	try {
 		const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
@@ -42,7 +42,7 @@ if (!token || !chatId) {
 	}
 
 	// 2. Send deploy notification
-	const message = `✅ <b>Deployed</b> instagram-rss-bridge\n🕐 ${new Date().toISOString()}`;
+	const message = `✅ <b>Deployed</b> rss-bridge\n🕐 ${new Date().toISOString()}`;
 
 	try {
 		const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
