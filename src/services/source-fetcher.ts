@@ -4,7 +4,7 @@ import { fetchFeed } from './feed-fetcher';
 import { RSS_ITEMS_LIMIT } from '../constants';
 
 // --- RSS-Bridge Public Instances (failover list) ---
-const RSS_BRIDGE_INSTANCES = [
+export const RSS_BRIDGE_INSTANCES = [
 	'https://rssbridge.prenghy.org',
 	'https://rss-bridge.sans-nuage.fr',
 	'https://rss.bloat.cat',
@@ -27,7 +27,7 @@ export async function fetchForSource(source: ChannelSource, env?: Env): Promise<
 		case 'hashtag': // legacy
 			return await fetchInstagramTag(source.value);
 		case 'rss_url':
-			return await fetchFeed(source.value);
+			return await fetchRssUrl(source.value);
 		case 'tiktok_user':
 			return await fetchTikTokUser(source.value);
 		default:
@@ -38,6 +38,44 @@ export async function fetchForSource(source: ChannelSource, env?: Env): Promise<
 				errors: [{ tier: 'config', message: `Unknown source type: ${source.type}` }],
 			};
 	}
+}
+
+/**
+ * Fetch an RSS URL, with RSS-Bridge instance failover for known bridge URLs.
+ * If the URL is from a known RSS-Bridge instance and fails, try other instances.
+ */
+async function fetchRssUrl(url: string): Promise<FetchResult> {
+	// Try the original URL first
+	const result = await fetchFeed(url);
+	if (result.items.length > 0) return result;
+
+	// Check if this is a known RSS-Bridge URL that can failover
+	try {
+		const parsed = new URL(url);
+		const origin = parsed.origin;
+		const matchedInstance = RSS_BRIDGE_INSTANCES.find((inst) => origin === inst || url.startsWith(inst));
+
+		if (matchedInstance) {
+			// It's an RSS-Bridge URL — try other instances with the same query
+			const queryPath = url.substring(matchedInstance.length); // e.g., "/?action=display&bridge=..."
+			console.log(`[RSSBridge] URL ${matchedInstance} failed, trying other instances...`);
+
+			for (const instance of RSS_BRIDGE_INSTANCES) {
+				if (instance === matchedInstance) continue;
+				const altUrl = instance + queryPath;
+				console.log(`[RSSBridge] Failover trying ${instance}...`);
+				const altResult = await fetchFeed(altUrl);
+				if (altResult.items.length > 0) {
+					console.log(`[RSSBridge] Failover success with ${instance}`);
+					return altResult;
+				}
+			}
+		}
+	} catch {
+		// URL parsing failed, just return original result
+	}
+
+	return result;
 }
 
 /**
