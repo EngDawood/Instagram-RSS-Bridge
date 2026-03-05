@@ -7,11 +7,44 @@ import { sendMediaToChannel } from '../handlers/send-media';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 import { buildHeaders } from '../../../utils/headers';
 import { IG_WEB_PROFILE, IG_TOP_SEARCH } from '../../../constants';
+import { enrichFeedItems } from '../../../utils/media-enrichment';
+
+const BOT_COMMANDS = [
+	{ command: 'start', description: 'Show all commands' },
+	{ command: 'help', description: 'How to use the bot' },
+	{ command: 'add', description: 'Register a channel: /add @channel' },
+	{ command: 'sub', description: 'Subscribe to a source: /sub @channel @iguser' },
+	{ command: 'unsub', description: 'Unsubscribe from a source' },
+	{ command: 'list', description: 'List all subscriptions' },
+	{ command: 'channels', description: 'List & manage channels' },
+	{ command: 'status', description: 'Status overview' },
+	{ command: 'seed', description: 'Mark source(s) as read' },
+	{ command: 'delay', description: 'Set check interval in minutes' },
+	{ command: 'set', description: 'Source format settings' },
+	{ command: 'set_default', description: 'Channel default format' },
+	{ command: 'enable', description: 'Enable a channel' },
+	{ command: 'disable', description: 'Disable a channel' },
+	{ command: 'test', description: 'Fetch & send latest post' },
+	{ command: 'debug', description: 'Test Instagram connectivity' },
+	{ command: 'setup', description: 'Sync bot commands & menu' },
+	{ command: 'cancel', description: 'Cancel current action' },
+];
 
 /**
  * Register diagnostic and testing commands.
  */
 export function registerDiagnosticCommands(bot: Bot, env: Env, kv: KVNamespace): void {
+	// /setup — Sync commands and menu button
+	bot.command('setup', async (ctx) => {
+		try {
+			await bot.api.setMyCommands(BOT_COMMANDS);
+			await bot.api.setChatMenuButton({ menu_button: { type: 'commands' } });
+			await ctx.reply('✅ Bot commands and menu button have been synchronized.');
+		} catch (err: any) {
+			await ctx.reply(`❌ Failed to sync commands: ${err.message}`);
+		}
+	});
+
 	// /test <source> — Fetch and send the latest post from any source
 	bot.command('test', async (ctx) => {
 		const arg = ctx.match?.trim() || '';
@@ -46,7 +79,10 @@ export function registerDiagnosticCommands(bot: Bot, env: Env, kv: KVNamespace):
 				return;
 			}
 
-			const latest = result.items[0];
+			const items = [result.items[0]];
+			await enrichFeedItems(items);
+			const latest = items[0];
+
 			const message = formatFeedItem(latest);
 			await sendMediaToChannel(bot, ctx.chat!.id, message);
 		} catch (err: any) {

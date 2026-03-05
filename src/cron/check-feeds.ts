@@ -13,6 +13,7 @@ import {
 	TELEGRAM_CONFIG_TTL,
 } from '../constants';
 import { enrichFeedItems } from '../utils/media-enrichment';
+import { FileTooLargeError } from '../services/telegram-bot/handlers/send-media';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -160,8 +161,20 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 					console.error(`[Cron] Rate limited on ${channelId}, stopping sends`);
 					break;
 				}
+
+				let errorSuffix = '';
+				if (fallbackErr instanceof FileTooLargeError) {
+					errorSuffix = `\n\n<b>File too large for Telegram!</b>\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`;
+				} else if (fallbackErr instanceof GrammyError && fallbackErr.error_code === 403) {
+					if (fallbackErr.description.includes('bot is not a member')) {
+						errorSuffix = '\n\n<b>Action required:</b> Add the bot to the channel/group as an administrator.';
+					} else if (fallbackErr.description.includes('blocked by the user')) {
+						errorSuffix = '\n\n<b>Action required:</b> The user has blocked the bot.';
+					}
+				}
+
 				await alertAdmin(bot, adminId,
-					`<b>Send failed</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>`
+					`<b>Send failed</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>${errorSuffix}`
 				);
 			}
 		}

@@ -52,6 +52,8 @@ export async function handleAddSourceValue(
 		id = `usr_${shortHash(value)}`;
 	} else if (sourceType === 'instagram_tag') {
 		id = `tag_${shortHash(value)}`;
+	} else if (sourceType === 'tiktok_user') {
+		id = `tiktok_${shortHash(value)}`;
 	}
 
 	if (config.sources.some((s) => s.id === id)) {
