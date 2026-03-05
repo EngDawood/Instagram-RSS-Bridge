@@ -8,8 +8,10 @@ import { downloadMedia } from '../services/media-downloader';
  */
 export async function enrichFeedItems(items: FeedItem[]): Promise<void> {
 	for (const item of items) {
-		if (item.media.length > 0) continue;
-		if (!item.link.includes('tiktok.com')) continue;
+		// If it's TikTok or Douyin, we ALWAYS want to try enrichment because the RSS enclosure is usually just a cover photo.
+		// For other platforms, we only enrich if media is missing.
+		const isShortVideo = item.link.includes('tiktok.com') || item.link.includes('douyin.com');
+		if (item.media.length > 0 && !isShortVideo) continue;
 
 		try {
 			const result = await downloadMedia(item.link, 'auto');
@@ -20,11 +22,12 @@ export async function enrichFeedItems(items: FeedItem[]): Promise<void> {
 				.map(m => ({
 					type: m.type as 'photo' | 'video',
 					url: m.url,
-					thumbnailUrl: undefined,
+					thumbnailUrl: result.thumbnail,
 				}));
 
 			if (enriched.length === 0) continue;
 
+			// Replace RSS media with enriched media (direct video/images)
 			item.media = enriched;
 			item.mediaType = deriveMediaType(enriched);
 		} catch (err) {

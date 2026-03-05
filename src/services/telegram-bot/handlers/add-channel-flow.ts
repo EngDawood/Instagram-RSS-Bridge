@@ -26,6 +26,14 @@ export async function addChannelDirect(
 		return;
 	}
 
+	if (!resolved.isMember) {
+		await ctx.reply(
+			`⚠️ <b>Warning:</b> The bot is not a member of <b>${resolved.title}</b>.\n\n` +
+				'Please add the bot to the channel/group as an <b>administrator</b> so it can post updates.',
+			{ parse_mode: 'HTML' }
+		);
+	}
+
 	const channels = await getChannelsList(kv);
 	if (channels.includes(resolved.id)) {
 		await clearAdminState(kv, adminId);

@@ -222,6 +222,31 @@ export async function downloadMedia(url: string, mode: 'auto' | 'audio' | 'hd' |
 			return await downloadPinterest(url);
 		}
 
+		// 10. Douyin
+		if (lowerUrl.includes('douyin.com')) {
+			return await downloadAIO(url, mode);
+		}
+
+		// 11. CapCut
+		if (lowerUrl.includes('capcut.com')) {
+			return await downloadAIO(url, mode);
+		}
+
+		// 12. MediaFire
+		if (lowerUrl.includes('mediafire.com')) {
+			return await downloadAIO(url, mode);
+		}
+
+		// 13. Google Drive
+		if (lowerUrl.includes('drive.google.com')) {
+			return await downloadAIO(url, mode);
+		}
+
+		// 14. Xiaohongshu
+		if (lowerUrl.includes('xiaohongshu.com') || lowerUrl.includes('xhslink.com')) {
+			return await downloadAIO(url, mode);
+		}
+
 		// Catch-all fallback using AIO
 		return await downloadAIO(url, mode);
 	} catch (err: any) {

@@ -1,13 +1,14 @@
 import type { Bot } from 'grammy';
 import type { ChannelSource } from '../../../types/telegram';
 import { fetchForSource } from '../../source-fetcher';
-import { formatFeedItem } from '../../../utils/telegram-format';
+import { formatFeedItem, resolveFormatSettings } from '../../../utils/telegram-format';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
 import { getCached, setCached } from '../../../utils/cache';
 import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../constants';
-import { sendMediaToChannel } from './send-media';
+import { sendMediaToChannel, FileTooLargeError } from './send-media';
 import { sendFallbackMessage } from '../helpers/fallback-sender';
 import { enrichFeedItems } from '../../../utils/media-enrichment';
+import { getChannelConfig } from '../storage/kv-operations';
 
 /**
  * Fetch latest posts from a source and send them to a channel.
@@ -20,7 +21,11 @@ export async function fetchAndSendLatest(
 	source: ChannelSource,
 	count: number = 1
 ): Promise<void> {
+	const adminId = parseInt(env.ADMIN_TELEGRAM_ID, 10);
 	try {
+		const config = await getChannelConfig(env.CACHE, String(chatId));
+		const settings = resolveFormatSettings(config?.defaultFormat, source.format);
+
 		const result = await fetchForSource(source, env);
 		if (result.items.length === 0) {
 			if (result.errors.length > 0) {
@@ -49,8 +54,8 @@ export async function fetchAndSendLatest(
 		let failures = 0;
 		for (const item of items) {
 			try {
-				const message = formatFeedItem(item);
-				await sendMediaToChannel(bot, chatId, message);
+				const message = formatFeedItem(item, settings);
+				await sendMediaToChannel(bot, chatId, message, settings);
 			} catch (err) {
 				failures++;
 				console.error(`Failed to send item ${item.id}:`, err);
@@ -59,6 +64,12 @@ export async function fetchAndSendLatest(
 					await sendFallbackMessage(bot, chatId, item);
 				} catch (fallbackErr) {
 					console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+					if (fallbackErr instanceof FileTooLargeError && !isNaN(adminId)) {
+						await bot.api.sendMessage(adminId,
+							`<b>File too large for Telegram!</b>\nChannel: <code>${chatId}</code>\nSource: <code>${source.value}</code>\n\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`,
+							{ parse_mode: 'HTML' }
+						);
+					}
 				}
 			}
 		}

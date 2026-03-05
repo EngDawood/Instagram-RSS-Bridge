@@ -94,10 +94,10 @@ function parseAtomEntry(
 	feedTitle: string,
 	feedLink: string,
 ): FeedItem | null {
-	const id = entry.find('id').text().trim();
-	const link = entry.find('link[rel="alternate"]').attr('href')
+	const id = entry.find('id').text().replace(/\s+/g, '');
+	const link = (entry.find('link[rel="alternate"]').attr('href')
 		|| entry.find('link').attr('href')
-		|| '';
+		|| '').replace(/\s+/g, '');
 	const title = entry.find('title').text().trim();
 	const author = entry.find('author > name').text().trim();
 	const published = entry.find('published').text() || entry.find('updated').text() || '';
@@ -134,8 +134,8 @@ function parseRSSItem(
 	feedTitle: string,
 	feedLink: string,
 ): FeedItem | null {
-	const guid = entry.find('guid').text().trim();
-	const link = entry.find('link').text().trim();
+	const guid = entry.find('guid').text().replace(/\s+/g, '');
+	const link = entry.find('link').text().replace(/\s+/g, '');
 	const title = entry.find('title').text().trim();
 	const author = entry.find('author').text().trim()
 		|| entry.find('dc\\:creator').text().trim()
@@ -180,7 +180,7 @@ function extractMedia(
 
 	// Atom enclosures: <link rel="enclosure">
 	entry.find('link[rel="enclosure"]').each((_, el) => {
-		const href = $(el).attr('href');
+		const href = $(el).attr('href')?.replace(/\s+/g, '');
 		const mimeType = $(el).attr('type') || '';
 		if (href && !seen.has(href)) {
 			seen.add(href);
@@ -197,11 +197,11 @@ function extractMedia(
 
 		// Video from <video><source src="...">
 		content$('video source, source[type^="video"]').each((_, el) => {
-			const src = content$(el).attr('src');
+			const src = content$(el).attr('src')?.replace(/\s+/g, '');
 			if (src && !seen.has(src)) {
 				seen.add(src);
 				// Find poster/thumbnail
-				const poster = content$(el).closest('video').attr('poster');
+				const poster = content$(el).closest('video').attr('poster')?.replace(/\s+/g, '');
 				media.push({ type: 'video', url: src, thumbnailUrl: poster });
 			}
 		});
@@ -209,7 +209,7 @@ function extractMedia(
 		// Images from <img> (only if no enclosures found, to avoid duplicates)
 		if (media.length === 0) {
 			content$('img').each((_, el) => {
-				const src = content$(el).attr('src');
+				const src = content$(el).attr('src')?.replace(/\s+/g, '');
 				if (src && !seen.has(src)) {
 					seen.add(src);
 					media.push({ type: 'photo', url: src });
@@ -234,7 +234,7 @@ function extractMediaFromRSS(
 
 	// RSS <enclosure>
 	entry.find('enclosure').each((_, el) => {
-		const url = $(el).attr('url');
+		const url = $(el).attr('url')?.replace(/\s+/g, '');
 		const mimeType = $(el).attr('type') || '';
 		if (url && !seen.has(url)) {
 			seen.add(url);
@@ -247,12 +247,12 @@ function extractMediaFromRSS(
 
 	// <media:content>
 	entry.find('media\\:content').each((_, el) => {
-		const url = $(el).attr('url');
+		const url = $(el).attr('url')?.replace(/\s+/g, '');
 		const medium = $(el).attr('medium') || '';
 		const mimeType = $(el).attr('type') || '';
 		if (url && !seen.has(url)) {
 			seen.add(url);
-			const thumbnail = entry.find('media\\:thumbnail').attr('url');
+			const thumbnail = entry.find('media\\:thumbnail').attr('url')?.replace(/\s+/g, '');
 			media.push({
 				type: medium === 'video' || mimeType.startsWith('video/') ? 'video' : 'photo',
 				url,
@@ -266,7 +266,7 @@ function extractMediaFromRSS(
 		const content$ = cheerio.load(contentHtml);
 
 		content$('video source, source[type^="video"]').each((_, el) => {
-			const src = content$(el).attr('src');
+			const src = content$(el).attr('src')?.replace(/\s+/g, '');
 			if (src && !seen.has(src)) {
 				seen.add(src);
 				media.push({ type: 'video', url: src });
@@ -275,7 +275,7 @@ function extractMediaFromRSS(
 
 		if (media.length === 0) {
 			content$('img').each((_, el) => {
-				const src = content$(el).attr('src');
+				const src = content$(el).attr('src')?.replace(/\s+/g, '');
 				if (src && !seen.has(src)) {
 					seen.add(src);
 					media.push({ type: 'photo', url: src });

@@ -20,6 +20,7 @@ export const BOT_COMMANDS = [
 	{ command: 'disable', description: 'Disable a channel' },
 	{ command: 'test', description: 'Fetch & send latest post' },
 	{ command: 'debug', description: 'Test Instagram connectivity' },
+	{ command: 'setup', description: 'Sync bot commands & menu' },
 	{ command: 'cancel', description: 'Cancel current action' },
 ];
 

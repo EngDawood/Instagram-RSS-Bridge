@@ -22,6 +22,8 @@ export function registerSourceCallbacks(bot: Bot, env: Env, kv: KVNamespace): vo
 			.row()
 			.text('#️⃣ Instagram Tag', `src_type:${channelId}:instagram_tag`)
 			.row()
+			.text('🎵 TikTok User', `src_type:${channelId}:tiktok_user`)
+			.row()
 			.text('🌐 RSS/Atom URL', `src_type:${channelId}:rss_url`)
 			.row()
 			.text('« Back', `ch:${channelId}`);
@@ -42,6 +44,7 @@ export function registerSourceCallbacks(bot: Bot, env: Env, kv: KVNamespace): vo
 		const prompts: Record<string, string> = {
 			instagram_user: '👤 Send the Instagram <b>username</b> (without @):',
 			instagram_tag: '#️⃣ Send the <b>hashtag</b> (without #):',
+			tiktok_user: '🎵 Send the TikTok <b>username</b> (without @):',
 			rss_url: '🌐 Send the <b>RSS/Atom feed URL</b>:',
 		};
 		await editOrReply(ctx, (prompts[sourceType] || 'Send the value:') + '\n\nUse /cancel to abort.', { parse_mode: 'HTML' });

@@ -78,6 +78,14 @@ export function registerSubscriptionCommands(bot: Bot, env: Env, kv: KVNamespace
 			return;
 		}
 
+		if (!resolved.isMember) {
+			await ctx.reply(
+				`⚠️ <b>Warning:</b> The bot is not a member of <b>${resolved.title}</b>.\n\n` +
+				'Please add the bot to the channel/group as an <b>administrator</b> so it can post updates.',
+				{ parse_mode: 'HTML' }
+			);
+		}
+
 		// Auto-register channel if not yet registered
 		let config = await getChannelConfig(kv, resolved.id);
 		if (!config) {

@@ -219,6 +219,13 @@ async function sendMediaGroupMessage(
 	}
 }
 
+/** Thrown when a file exceeds Telegram's 50MB bot upload limit. */
+export class FileTooLargeError extends Error {
+	constructor(public readonly url: string, public readonly size: number) {
+		super(`File too large (${(size / 1024 / 1024).toFixed(1)}MB) — Telegram limit is 50MB`);
+	}
+}
+
 async function downloadAsInputFile(url: string, filename: string): Promise<InputFile> {
 	const resp = await fetch(url, {
 		headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -228,12 +235,12 @@ async function downloadAsInputFile(url: string, filename: string): Promise<Input
 
 	const contentLength = Number(resp.headers.get('content-length') || 0);
 	if (contentLength > MAX_UPLOAD_SIZE) {
-		throw new Error(`File too large (${(contentLength / 1024 / 1024).toFixed(1)}MB) — Telegram limit is 50MB`);
+		throw new FileTooLargeError(url, contentLength);
 	}
 
 	const bytes = new Uint8Array(await resp.arrayBuffer());
 	if (bytes.length > MAX_UPLOAD_SIZE) {
-		throw new Error(`File too large (${(bytes.length / 1024 / 1024).toFixed(1)}MB) — Telegram limit is 50MB`);
+		throw new FileTooLargeError(url, bytes.length);
 	}
 
 	return new InputFile(bytes, filename);
