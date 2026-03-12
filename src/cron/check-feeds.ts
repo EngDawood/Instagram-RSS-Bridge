@@ -3,7 +3,7 @@ import type { ChannelConfig, ChannelSource } from '../types/telegram';
 import type { FeedItem, FeedMediaFilter, FetchResult } from '../types/feed';
 import { fetchFeed } from '../services/feed-fetcher';
 import { fetchInstagramUser, fetchInstagramTag, fetchForSource } from '../services/source-fetcher';
-import { getChannelConfig, saveChannelConfig, sendMediaToChannel } from '../services/telegram-bot';
+import { getChannelConfig, saveChannelConfig, sendMediaToChannel, addFailedPost } from '../services/telegram-bot';
 import { sendFallbackMessage } from '../services/telegram-bot/helpers/fallback-sender';
 import { formatFeedItem, resolveFormatSettings } from '../utils/telegram-format';
 import { getCached, setCached } from '../utils/cache';
@@ -151,12 +151,23 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 				break;
 			}
 			console.error(`Failed to send item ${item.id} to ${channelId}:`, err);
+
+			// Check fallback setting
+			if (settings.fallbackMode === 'skip') {
+				console.log(`[Cron] Skipping fallback for ${item.id} as per settings`);
+				await addFailedPost(env.CACHE, channelId, item);
+				sentItemLinks.push(item.link); // Mark as seen so we don't retry every time
+				continue;
+			}
+
 			// Fallback: send thumbnail + link
 			try {
 				await sendFallbackMessage(bot, chatId, item);
 				sentItemLinks.push(item.link);
 			} catch (fallbackErr) {
 				console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+				await addFailedPost(env.CACHE, channelId, item);
+				
 				if (fallbackErr instanceof GrammyError && fallbackErr.error_code === 429) {
 					console.error(`[Cron] Rate limited on ${channelId}, stopping sends`);
 					break;

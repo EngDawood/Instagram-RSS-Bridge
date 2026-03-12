@@ -21,6 +21,7 @@ export const BOT_COMMANDS = [
 	{ command: 'test', description: 'Fetch & send latest post' },
 	{ command: 'debug', description: 'Test Instagram connectivity' },
 	{ command: 'setup', description: 'Sync bot commands & menu' },
+	{ command: 'folo', description: 'Get Folo webhook URL for a channel' },
 	{ command: 'cancel', description: 'Cancel current action' },
 ];
 

@@ -2,7 +2,7 @@ import { FORMAT_LABELS } from '../../../constants';
 import type { FormatSettings } from '../../../types/telegram';
 
 export const FORMAT_SETTING_KEYS: (keyof FormatSettings)[] = [
-	'notification', 'media', 'author', 'sourceFormat', 'linkPreview', 'lengthLimit',
+	'notification', 'media', 'author', 'sourceFormat', 'linkPreview', 'lengthLimit', 'fallbackMode',
 ];
 
 /**

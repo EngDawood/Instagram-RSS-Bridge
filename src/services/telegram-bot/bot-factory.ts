@@ -4,6 +4,7 @@ import { registerChannelCommands } from './commands/channel-commands';
 import { registerSubscriptionCommands } from './commands/subscription-commands';
 import { registerFormatCommands } from './commands/format-commands';
 import { registerDiagnosticCommands } from './commands/diagnostic-commands';
+import { registerFoloCommands } from './commands/folo-commands';
 import { registerTextInputHandler } from './handlers/text-input-handler';
 import { registerChannelCallbacks } from './callbacks/channel-callbacks';
 import { registerSourceCallbacks } from './callbacks/source-callbacks';
@@ -70,6 +71,7 @@ export function createBot(env: Env): Bot {
 	registerSubscriptionCommands(bot, env, kv);  // /sub, /unsub, /delay, /seed, /list
 	registerFormatCommands(bot, env, kv);        // /set_default, /set
 	registerDiagnosticCommands(bot, env, kv);    // /test, /debug
+	registerFoloCommands(bot, env, kv);          // /folo
 
 	// Register text input handler (multi-step flows)
 	registerTextInputHandler(bot, env, kv);

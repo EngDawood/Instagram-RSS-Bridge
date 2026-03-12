@@ -1,7 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import type { Bot } from 'grammy';
-import { getChannelConfig, saveChannelConfig, getChannelsList, saveChannelsList } from '../storage/kv-operations';
-import { showChannelConfig, showChannelsList } from '../views/channel-views';
+import { getChannelConfig, saveChannelConfig, getChannelsList, saveChannelsList, clearFailedPosts } from '../storage/kv-operations';
+import { showChannelConfig, showChannelsList, showFailedPosts } from '../views/channel-views';
 import { editOrReply } from '../helpers/edit-or-reply';
 import { CACHE_PREFIX_TELEGRAM_CHANNEL } from '../../../constants';
 
@@ -26,6 +26,21 @@ export function registerChannelCallbacks(bot: Bot, env: Env, kv: KVNamespace): v
 		await saveChannelConfig(kv, channelId, config);
 		await showChannelConfig(ctx, kv, channelId);
 		await ctx.answerCallbackQuery({ text: config.enabled ? '✅ Enabled' : '❌ Disabled' });
+	});
+
+	// View failed posts
+	bot.callbackQuery(/^failed_posts:([^:]+)$/, async (ctx) => {
+		const channelId = ctx.match[1];
+		await showFailedPosts(ctx, kv, channelId);
+		await ctx.answerCallbackQuery();
+	});
+
+	// Clear failed posts log
+	bot.callbackQuery(/^clear_failed:([^:]+)$/, async (ctx) => {
+		const channelId = ctx.match[1];
+		await clearFailedPosts(kv, channelId);
+		await showFailedPosts(ctx, kv, channelId);
+		await ctx.answerCallbackQuery({ text: 'Log cleared' });
 	});
 
 	// Remove channel (confirmation prompt)

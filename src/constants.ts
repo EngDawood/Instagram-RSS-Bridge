@@ -48,6 +48,7 @@ export const DEFAULT_FORMAT_SETTINGS: FormatSettings = {
 	sourceFormat: 'disable',
 	linkPreview: 'disable',
 	lengthLimit: 0,
+	fallbackMode: 'thumbnail_link',
 };
 
 // Setting display names and ordered options for inline keyboard UI
@@ -100,6 +101,13 @@ export const FORMAT_LABELS: Record<
 			{ value: '256', text: '256' },
 			{ value: '512', text: '512' },
 			{ value: '1024', text: '1024' },
+		],
+	},
+	fallbackMode: {
+		label: 'If media too large',
+		options: [
+			{ value: 'thumbnail_link', text: 'Thumbnail + Link' },
+			{ value: 'skip', text: 'Skip post' },
 		],
 	},
 };

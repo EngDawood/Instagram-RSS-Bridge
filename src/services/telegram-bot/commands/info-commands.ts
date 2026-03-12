@@ -34,6 +34,10 @@ export function registerInfoCommands(bot: Bot, env: Env, kv: KVNamespace): void 
 				'/debug @edraakorg — Test Instagram connectivity\n\n' +
 				'<b>Media Download:</b>\n' +
 				'Send a URL (TikTok, IG, X, YouTube, etc.) to download media\n\n' +
+				'<b>Folo Integration:</b>\n' +
+				'/folo — Show webhook URL & subscribed channels\n' +
+				'/folo add @channel — Subscribe channel to Folo\n' +
+				'/folo remove @channel — Unsubscribe\n\n' +
 				'/cancel — Cancel current action\n' +
 				'/help — Full help',
 			{ parse_mode: 'HTML' }
@@ -68,7 +72,11 @@ export function registerInfoCommands(bot: Bot, env: Env, kv: KVNamespace): void 
 				'Send a supported URL to download media directly.\n' +
 				'Supported: TikTok, Instagram, X/Twitter, YouTube,\n' +
 				'Facebook, Threads, SoundCloud, Spotify, Pinterest\n\n' +
-				'You can use @dawood_rss or channel ID (-100xxx)',
+				'You can use @dawood_rss or channel ID (-100xxx)\n\n' +
+				'<b>Folo Integration:</b>\n' +
+				'<code>/folo</code> — Show webhook URL & subscribed channels\n' +
+				'<code>/folo add @dawood_rss</code> — Subscribe channel\n' +
+				'<code>/folo remove @dawood_rss</code> — Unsubscribe',
 			{ parse_mode: 'HTML' }
 		);
 	});

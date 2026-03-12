@@ -8,7 +8,7 @@ import { CACHE_PREFIX_TELEGRAM_SENT, TELEGRAM_CONFIG_TTL } from '../../../consta
 import { sendMediaToChannel, FileTooLargeError } from './send-media';
 import { sendFallbackMessage } from '../helpers/fallback-sender';
 import { enrichFeedItems } from '../../../utils/media-enrichment';
-import { getChannelConfig } from '../storage/kv-operations';
+import { getChannelConfig, addFailedPost } from '../storage/kv-operations';
 
 /**
  * Fetch latest posts from a source and send them to a channel.
@@ -59,11 +59,20 @@ export async function fetchAndSendLatest(
 			} catch (err) {
 				failures++;
 				console.error(`Failed to send item ${item.id}:`, err);
+
+				// Check fallback setting
+				if (settings.fallbackMode === 'skip') {
+					console.log(`[Manual] Skipping fallback for ${item.id} as per settings`);
+					await addFailedPost(env.CACHE, String(chatId), item);
+					continue;
+				}
+
 				// Fallback: send thumbnail + link
 				try {
 					await sendFallbackMessage(bot, chatId, item);
 				} catch (fallbackErr) {
 					console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
+					await addFailedPost(env.CACHE, String(chatId), item);
 					if (fallbackErr instanceof FileTooLargeError && !isNaN(adminId)) {
 						await bot.api.sendMessage(adminId,
 							`<b>File too large for Telegram!</b>\nChannel: <code>${chatId}</code>\nSource: <code>${source.value}</code>\n\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`,
@@ -73,9 +82,13 @@ export async function fetchAndSendLatest(
 				}
 			}
 		}
-		if (failures > 0) {
+		if (failures > 0 && settings.fallbackMode !== 'skip') {
 			try {
 				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} post(s) sent as fallback (thumbnail + link).`);
+			} catch (_) { /* best effort */ }
+		} else if (failures > 0 && settings.fallbackMode === 'skip') {
+			try {
+				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} post(s) skipped due to media errors (see Failed Posts in settings).`);
 			} catch (_) { /* best effort */ }
 		}
 

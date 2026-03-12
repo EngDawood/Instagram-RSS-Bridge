@@ -1,6 +1,6 @@
 import { InlineKeyboard } from 'grammy';
 import type { Context } from 'grammy';
-import { getChannelsList, getChannelConfig } from '../storage/kv-operations';
+import { getChannelsList, getChannelConfig, getFailedPosts } from '../storage/kv-operations';
 import { editOrReply } from '../helpers/edit-or-reply';
 import { sourceTypeIcon } from '../helpers/source-parser';
 import { escapeHtml as escapeHtmlBot } from '../../../utils/text';
@@ -84,6 +84,7 @@ export async function showChannelConfig(
 		.text('+ Add Source', `add_src:${channelId}`)
 		.text('Default Format', `fd_v:${channelId}`)
 		.row()
+		.text('❌ Failed Posts', `failed_posts:${channelId}`)
 		.text('🗑 Remove Channel', `ch_remove:${channelId}`)
 		.row();
 
@@ -99,4 +100,37 @@ export async function showChannelConfig(
 	keyboard.text('« Back to channels', 'back:channels');
 
 	await editOrReply(ctx, text, { parse_mode: 'HTML', reply_markup: keyboard });
+}
+
+/**
+ * Display list of posts that failed to send for a specific channel.
+ */
+export async function showFailedPosts(
+	ctx: Context,
+	kv: KVNamespace,
+	channelId: string
+): Promise<void> {
+	const posts = await getFailedPosts(kv, channelId);
+	const config = await getChannelConfig(kv, channelId);
+	const title = config?.channelTitle || channelId;
+
+	let text = `<b>Failed Posts for ${escapeHtmlBot(title)}</b>\n\n`;
+
+	if (posts.length === 0) {
+		text += '<i>No failed posts recorded.</i>';
+	} else {
+		text += `Showing last ${posts.length} posts that failed to send or were skipped:\n\n`;
+		for (const post of posts) {
+			const postTitle = post.title || 'Untitled';
+			text += `• <a href="${post.link}">${escapeHtmlBot(postTitle)}</a>\n`;
+		}
+	}
+
+	const keyboard = new InlineKeyboard();
+	if (posts.length > 0) {
+		keyboard.text('Clear Log', `clear_failed:${channelId}`).row();
+	}
+	keyboard.text('« Back', `ch:${channelId}`);
+
+	await editOrReply(ctx, text, { parse_mode: 'HTML', reply_markup: keyboard, disable_web_page_preview: true });
 }

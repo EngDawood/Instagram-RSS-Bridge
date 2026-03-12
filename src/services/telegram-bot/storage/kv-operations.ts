@@ -5,6 +5,7 @@ import {
 	TELEGRAM_CONFIG_TTL,
 } from '../../../constants';
 import type { ChannelConfig } from '../../../types/telegram';
+import type { FeedItem } from '../../../types/feed';
 
 /**
  * Get the list of all registered channel IDs.
@@ -53,4 +54,40 @@ export async function saveChannelConfig(kv: KVNamespace, channelId: string, conf
  */
 export async function deleteChannelConfig(kv: KVNamespace, channelId: string): Promise<void> {
 	await kv.delete(`${CACHE_PREFIX_TELEGRAM_CHANNEL}${channelId}:config`);
+}
+
+/**
+ * Get the list of failed posts for a channel.
+ */
+export async function getFailedPosts(kv: KVNamespace, channelId: string): Promise<FeedItem[]> {
+	const raw = await kv.get(`${CACHE_PREFIX_TELEGRAM_CHANNEL}${channelId}:failed_posts`);
+	if (!raw) return [];
+	try {
+		return JSON.parse(raw);
+	} catch (err) {
+		console.error(`[KV] Corrupted failed posts for channel ${channelId}:`, err);
+		return [];
+	}
+}
+
+/**
+ * Add a failed post to the channel's log (limited to 20).
+ */
+export async function addFailedPost(kv: KVNamespace, channelId: string, item: FeedItem): Promise<void> {
+	const posts = await getFailedPosts(kv, channelId);
+	// Avoid duplicates by link
+	if (posts.some((p) => p.link === item.link)) return;
+
+	posts.unshift(item);
+	const capped = posts.slice(0, 20);
+	await kv.put(`${CACHE_PREFIX_TELEGRAM_CHANNEL}${channelId}:failed_posts`, JSON.stringify(capped), {
+		expirationTtl: TELEGRAM_CONFIG_TTL,
+	});
+}
+
+/**
+ * Clear the failed posts log for a channel.
+ */
+export async function clearFailedPosts(kv: KVNamespace, channelId: string): Promise<void> {
+	await kv.delete(`${CACHE_PREFIX_TELEGRAM_CHANNEL}${channelId}:failed_posts`);
 }

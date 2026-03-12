@@ -31,7 +31,8 @@
 	"vars": {
 		"USER_ID_CACHE_TTL": "86400",
 		"FEED_CACHE_TTL": "900",
-		"ADMIN_TELEGRAM_ID": "801062947"
+		"ADMIN_TELEGRAM_ID": "801062947",
+		"WORKER_URL": "https://instagram-rss-bridge.engdawood.workers.dev"
 	},
 	// Cron trigger: check feeds every 5 minutes
 	"triggers": {
@@ -44,4 +45,5 @@
 	// - IG_DS_USER_ID
 	// - TELEGRAM_BOT_TOKEN
 	// - TELEGRAM_WEBHOOK_SECRET
+	// - FOLO_WEBHOOK_SECRET  (optional: if set, Folo webhook requests must include ?token=<secret>)
 }
