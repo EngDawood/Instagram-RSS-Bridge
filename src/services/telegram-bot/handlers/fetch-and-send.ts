@@ -75,7 +75,7 @@ export async function fetchAndSendLatest(
 
 				// Fallback: send thumbnail + link
 				try {
-					await sendFallbackMessage(bot, chatId, item);
+					await sendFallbackMessage(bot, chatId, item, settings.fallbackMode as 'thumbnail_link' | 'thumbnail');
 				} catch (fallbackErr) {
 					console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
 					await addFailedPost(env.CACHE, String(chatId), item);

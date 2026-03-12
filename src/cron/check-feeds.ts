@@ -162,7 +162,7 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 
 			// Fallback: send thumbnail + link
 			try {
-				await sendFallbackMessage(bot, chatId, item);
+				await sendFallbackMessage(bot, chatId, item, settings.fallbackMode as 'thumbnail_link' | 'thumbnail');
 				sentItemLinks.push(item.link);
 			} catch (fallbackErr) {
 				console.error(`Fallback also failed for ${item.id}:`, fallbackErr);

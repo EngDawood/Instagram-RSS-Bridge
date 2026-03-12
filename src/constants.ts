@@ -107,6 +107,7 @@ export const FORMAT_LABELS: Record<
 		label: 'If media too large',
 		options: [
 			{ value: 'thumbnail_link', text: 'Thumbnail + Link' },
+			{ value: 'thumbnail', text: 'Thumbnail only' },
 			{ value: 'skip', text: 'Skip post' },
 		],
 	},

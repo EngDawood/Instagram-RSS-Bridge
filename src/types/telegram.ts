@@ -8,7 +8,7 @@ export interface FormatSettings {
 	sourceFormat: 'title_link' | 'link_only' | 'bare_url' | 'disable';
 	linkPreview: 'enable' | 'disable';
 	lengthLimit: number; // 0 = unlimited, or 256/512/1024
-	fallbackMode: 'thumbnail_link' | 'skip';
+	fallbackMode: 'thumbnail_link' | 'thumbnail' | 'skip';
 }
 
 export type SourceType = 'instagram_user' | 'instagram_tag' | 'rss_url' | 'tiktok_user';
