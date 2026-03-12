@@ -11,6 +11,18 @@ import { enrichFeedItems } from '../../../utils/media-enrichment';
 import { getChannelConfig, addFailedPost } from '../storage/kv-operations';
 
 /**
+ * Send an alert DM to the admin. Silently fails if notification itself errors.
+ */
+async function alertAdmin(bot: Bot, adminId: number, message: string): Promise<void> {
+	if (isNaN(adminId)) return;
+	try {
+		await bot.api.sendMessage(adminId, message, { parse_mode: 'HTML' });
+	} catch (e) {
+		console.error('[Alert] Failed to notify admin:', e);
+	}
+}
+
+/**
  * Fetch latest posts from a source and send them to a channel.
  * Primarily used when a new source is added (initial fetch).
  */
@@ -32,15 +44,9 @@ export async function fetchAndSendLatest(
 				const errorSummary = result.errors
 					.map((e) => `- ${e.tier}: ${e.message}${e.status ? ` (HTTP ${e.status})` : ''}`)
 					.join('\n');
-				try {
-					await bot.api.sendMessage(
-						chatId,
-						`Failed to fetch for <b>${escapeHtmlBot(source.value)}</b>:\n\n<pre>${errorSummary}</pre>`,
-						{ parse_mode: 'HTML' }
-					);
-				} catch (sendErr) {
-					console.error('Failed to send error notification:', sendErr);
-				}
+				await alertAdmin(bot, adminId,
+					`<b>Fetch failed for subscription</b>\nSource: <code>${escapeHtmlBot(source.value)}</code>\nChannel: <code>${chatId}</code>\n\n<pre>${errorSummary}</pre>`
+				);
 			}
 			return;
 		}
@@ -82,14 +88,13 @@ export async function fetchAndSendLatest(
 				}
 			}
 		}
-		if (failures > 0 && settings.fallbackMode !== 'skip') {
-			try {
-				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} post(s) sent as fallback (thumbnail + link).`);
-			} catch (_) { /* best effort */ }
-		} else if (failures > 0 && settings.fallbackMode === 'skip') {
-			try {
-				await bot.api.sendMessage(chatId, `⚠️ ${failures}/${items.length} post(s) skipped due to media errors (see Failed Posts in settings).`);
-			} catch (_) { /* best effort */ }
+		
+		// Notify admin of results (never send status summaries to the channel)
+		if (failures > 0) {
+			const action = settings.fallbackMode === 'skip' ? 'skipped' : 'sent as fallback';
+			await alertAdmin(bot, adminId,
+				`⚠️ <b>Fetch result for ${chatId}</b>\nSource: <code>${source.value}</code>\n${failures}/${items.length} post(s) ${action}.`
+			);
 		}
 
 		// Save sent links so cron doesn't re-send
