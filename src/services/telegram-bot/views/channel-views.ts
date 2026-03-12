@@ -16,7 +16,7 @@ export async function showChannelsList(
 	const channels = await getChannelsList(kv);
 
 	if (channels.length === 0) {
-		const message = 'No channels configured. Use /add @channel to add one.';
+		const message = "You haven't added any channels yet. Use /add @channel to get started.";
 		if (mode === 'edit') {
 			await editOrReply(ctx, message);
 		} else {
@@ -34,7 +34,7 @@ export async function showChannelsList(
 		keyboard.text(`${status} ${label} (${srcCount} sources)`, `ch:${channelId}`).row();
 	}
 
-	const text = '<b>Your channels:</b>\n\nTap a channel to manage it.';
+	const text = '<b>Your channels:</b>\n\nSelect a channel to manage its settings.';
 	const options = { parse_mode: 'HTML' as const, reply_markup: keyboard };
 
 	if (mode === 'edit') {
@@ -66,7 +66,7 @@ export async function showChannelConfig(
 		`Delay: every ${config.checkIntervalMinutes} min\n`;
 
 	if (config.sources.length === 0) {
-		text += '\n<i>No sources — tap + Add Source below</i>';
+		text += '\n<i>No sources added yet. Tap + Add Source to start tracking feeds.</i>';
 	} else {
 		text += `\n<b>Sources (${config.sources.length}):</b>\n`;
 		for (const src of config.sources) {
@@ -117,7 +117,7 @@ export async function showFailedPosts(
 	let text = `<b>Failed Posts for ${escapeHtmlBot(title)}</b>\n\n`;
 
 	if (posts.length === 0) {
-		text += '<i>No failed posts recorded.</i>';
+		text += '<i>Everything is looking good! No failed posts to show.</i>';
 	} else {
 		text += `Showing last ${posts.length} posts that failed to send or were skipped:\n\n`;
 		for (const post of posts) {

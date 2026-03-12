@@ -55,7 +55,7 @@ export async function checkAllFeeds(env: Env): Promise<void> {
 		} catch (err) {
 			console.error(`Error checking channel ${channelId}:`, err);
 			await alertAdmin(bot, adminId,
-				`<b>Cron channel error</b>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(err)}</pre>`
+				`❌ <b>Channel sync error</b>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(err)}</pre>`
 			);
 		}
 	}
@@ -81,7 +81,7 @@ async function checkChannel(channelId: string, now: number, bot: Bot, env: Env, 
 		} catch (err) {
 			console.error(`Error checking source ${source.value} for channel ${channelId}:`, err);
 			await alertAdmin(bot, adminId,
-				`<b>Cron source error</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\n\n<pre>${truncErr(err)}</pre>`
+				`❌ <b>Source fetch error</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\n\n<pre>${truncErr(err)}</pre>`
 			);
 		}
 	}
@@ -96,7 +96,7 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 				.map((e) => `[${e.tier}] ${e.message ?? 'unknown'}`)
 				.join('\n');
 			await alertAdmin(bot, adminId,
-				`<b>Fetch failed — all instances down</b>\nSource: <code>${source.value}</code>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(errorSummary, 500)}</pre>`
+				`⚠️ <b>Connection lost — all instances down</b>\nSource: <code>${source.value}</code>\nChannel: <code>${channelId}</code>\n\n<pre>${truncErr(errorSummary, 500)}</pre>`
 			);
 		}
 		return;
@@ -175,17 +175,17 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 
 				let errorSuffix = '';
 				if (fallbackErr instanceof FileTooLargeError) {
-					errorSuffix = `\n\n<b>File too large for Telegram!</b>\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`;
+					errorSuffix = `\n\n<b>File exceeds Telegram's size limit</b>\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`;
 				} else if (fallbackErr instanceof GrammyError && fallbackErr.error_code === 403) {
 					if (fallbackErr.description.includes('bot is not a member')) {
-						errorSuffix = '\n\n<b>Action required:</b> Add the bot to the channel/group as an administrator.';
+						errorSuffix = '\n\n<b>Action required:</b> Add the bot to your channel as an administrator.';
 					} else if (fallbackErr.description.includes('blocked by the user')) {
-						errorSuffix = '\n\n<b>Action required:</b> The user has blocked the bot.';
+						errorSuffix = '\n\n<b>Action required:</b> The recipient has blocked the bot.';
 					}
 				}
 
 				await alertAdmin(bot, adminId,
-					`<b>Send failed</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>${errorSuffix}`
+					`❌ <b>Failed to deliver post</b> (main + fallback)\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItem: <code>${item.id}</code>\n\n<pre>${truncErr(fallbackErr)}</pre>${errorSuffix}`
 				);
 			}
 		}
@@ -200,7 +200,7 @@ async function checkSource(channelId: string, source: ChannelSource, bot: Bot, e
 	} else {
 		// All posts failed to send — don't update so they're retried
 		await alertAdmin(bot, adminId,
-			`<b>All posts failed to send</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItems: ${postsToSend.length}`
+			`⚠️ <b>Feed delivery failed</b>\nChannel: <code>${channelId}</code>\nSource: <code>${source.value}</code>\nItems: ${postsToSend.length}`
 		);
 	}
 }

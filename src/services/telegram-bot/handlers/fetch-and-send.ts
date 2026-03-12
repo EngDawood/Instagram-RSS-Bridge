@@ -45,7 +45,7 @@ export async function fetchAndSendLatest(
 					.map((e) => `- ${e.tier}: ${e.message}${e.status ? ` (HTTP ${e.status})` : ''}`)
 					.join('\n');
 				await alertAdmin(bot, adminId,
-					`<b>Fetch failed for subscription</b>\nSource: <code>${escapeHtmlBot(source.value)}</code>\nChannel: <code>${chatId}</code>\n\n<pre>${errorSummary}</pre>`
+					`❌ <b>Couldn't fetch updates</b>\nSource: <code>${escapeHtmlBot(source.value)}</code>\nChannel: <code>${chatId}</code>\n\n<pre>${errorSummary}</pre>`
 				);
 			}
 			return;
@@ -80,9 +80,8 @@ export async function fetchAndSendLatest(
 					console.error(`Fallback also failed for ${item.id}:`, fallbackErr);
 					await addFailedPost(env.CACHE, String(chatId), item);
 					if (fallbackErr instanceof FileTooLargeError && !isNaN(adminId)) {
-						await bot.api.sendMessage(adminId,
-							`<b>File too large for Telegram!</b>\nChannel: <code>${chatId}</code>\nSource: <code>${source.value}</code>\n\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`,
-							{ parse_mode: 'HTML' }
+						await alertAdmin(bot, adminId,
+							`❌ <b>File is too large for Telegram</b>\nChannel: <code>${chatId}</code>\nSource: <code>${source.value}</code>\n\nDirect URL: <a href="${fallbackErr.url}">Download here</a>`
 						);
 					}
 				}
@@ -93,7 +92,7 @@ export async function fetchAndSendLatest(
 		if (failures > 0) {
 			const action = settings.fallbackMode === 'skip' ? 'skipped' : 'sent as fallback';
 			await alertAdmin(bot, adminId,
-				`⚠️ <b>Fetch result for ${chatId}</b>\nSource: <code>${source.value}</code>\n${failures}/${items.length} post(s) ${action}.`
+				`ℹ️ <b>Sync results for ${chatId}</b>\nSource: <code>${source.value}</code>\n${failures}/${items.length} post(s) ${action}.`
 			);
 		}
 
@@ -115,7 +114,7 @@ export async function fetchAndSendLatest(
 	} catch (err) {
 		console.error(`fetchAndSendLatest error for ${source.value}:`, err);
 		try {
-			await bot.api.sendMessage(chatId, `⚠️ Failed to fetch initial posts for ${escapeHtmlBot(source.value)}. The subscription was saved but the first fetch failed.`, { parse_mode: 'HTML' });
+			await bot.api.sendMessage(chatId, `⚠️ I couldn't fetch the latest posts for <b>${escapeHtmlBot(source.value)}</b>. The subscription was saved, but the first attempt failed. Check the logs or source URL and try again.`, { parse_mode: 'HTML' });
 		} catch (notifyErr) {
 			console.error('Failed to notify admin of fetchAndSendLatest failure:', notifyErr);
 		}
